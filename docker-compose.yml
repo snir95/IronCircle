@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  server:
+    # Tell Docker Compose to use the .dev Dockerfile
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    volumes:
+      # Mount your local source code into the container
+      - ./server/src:/usr/src/app/src
+    ports:
+      - "3001:3001"
+    networks:
+      - app-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    volumes:
+      # Mount your local source code for live-reloading
+      - ./client:/app
+      - /app/node_modules # Do not map the host node_modules
+    ports:
+      # The Vue dev server runs on 8080
+      - "8080:8080"
+    networks:
+      - app-network
+    depends_on:
+      - server
+
+networks:
+  app-network:
+    driver: bridge
+    

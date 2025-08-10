@@ -1,0 +1,16 @@
+# Filename: server/Dockerfile.dev
+
+# Use a full Node image that has all the tools needed
+FROM node:18
+
+WORKDIR /usr/src/app
+
+# Copy only package files to leverage Docker cache
+COPY package*.json ./
+
+# Install all dependencies, including devDependencies
+RUN npm install
+
+# This command will be run when the container starts
+# It uses nodemon to watch the src directory
+CMD ["npm", "run", "dev"]

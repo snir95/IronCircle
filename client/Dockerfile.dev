@@ -1,0 +1,15 @@
+# Filename: client/Dockerfile.dev
+
+FROM node:18
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+# Vue CLI dev server runs on port 8080 by default
+EXPOSE 8080
+
+# This will start the dev server when the container runs
+CMD ["npm", "run", "serve"]

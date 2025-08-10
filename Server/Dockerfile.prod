@@ -1,0 +1,22 @@
+# --- Build Stage ---
+    FROM node:18 as builder
+    WORKDIR /usr/src/app
+    COPY package*.json ./
+    RUN npm install
+    COPY . .
+    # Compile TypeScript into the /dist folder
+    RUN npm run build
+    
+    # --- Production Stage ---
+    FROM node:18-alpine
+    WORKDIR /usr/src/app
+    COPY package*.json ./
+    # Install ONLY production dependencies
+    RUN npm install --omit=dev
+    # Copy compiled code from the build stage
+    COPY --from=builder /usr/src/app/dist ./dist
+    # Expose the application port
+    EXPOSE 3001
+    # Start the application
+    CMD ["npm", "start"]
+    

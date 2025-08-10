@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.prod
+    # In production, we don't mount volumes for code
+    volumes: []
+    # No need to expose port to host if it's behind a reverse proxy like Nginx
+    # But we expose it here for direct access if needed
+    ports:
+      - "3001:3001"
+    restart: always
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.prod
+    volumes: []
+    ports:
+      # Nginx serves on port 80, which we map to host port 80
+      - "80:80"
+    restart: always
+    
