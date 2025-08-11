@@ -238,12 +238,18 @@ export default defineComponent({
     const sendMessage = () => {
       if (!newMessage.value.trim()) return;
       
+      console.log('Sending message:', newMessage.value);
+      console.log('Current channel:', currentChannel.value);
+      console.log('Socket connected:', socket.value?.connected);
+      
       if (currentChannel.value) {
+        console.log('Emitting send_message to channel:', currentChannel.value._id);
         socket.value?.emit('send_message', {
           channelId: currentChannel.value._id,
           content: newMessage.value
         });
       } else if (currentPrivateChat.value) {
+        console.log('Emitting private_message to user:', currentPrivateChat.value._id);
         socket.value?.emit('private_message', {
           recipientId: currentPrivateChat.value._id,
           content: newMessage.value

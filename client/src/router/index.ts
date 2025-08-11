@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import HomeView from '../views/HomeView.vue';
 import LoginForm from '../components/LoginForm.vue';
 import RegisterForm from '../components/RegisterForm.vue';
 import ChatInterface from '../components/ChatInterface.vue';
@@ -8,8 +7,9 @@ import store from '../store';
 const routes = [
   {
     path: '/',
-    name: 'home',
-    component: HomeView
+    redirect: () => {
+      return store.getters.isAuthenticated ? '/chat' : '/login'
+    }
   },
   {
     path: '/login',

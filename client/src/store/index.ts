@@ -3,22 +3,37 @@ import axios from 'axios';
 
 const API_URL = process.env.VUE_APP_API_URL || 'http://localhost:3001/api';
 
+// Set up axios interceptor for authentication
+const token = localStorage.getItem('token');
+if (token) {
+  axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+}
+
 export default createStore({
   state: {
     user: null as any,
     token: localStorage.getItem('token') || null,
-    channels: [] as any[],
-    currentChannel: null as any,
+    channels: JSON.parse(localStorage.getItem('channels') || '[]') as any[],
+    currentChannel: JSON.parse(localStorage.getItem('currentChannel') || 'null') as any,
     messages: [] as any[],
-    users: [] as any[],
+    users: JSON.parse(localStorage.getItem('users') || '[]') as any[],
     onlineUsers: new Set() as Set<string>,
-    isAuthenticated: false,
+    isAuthenticated: !!(localStorage.getItem('token')),
     loading: false,
     error: null as string | null
   },
   
   mutations: {
     SET_USER(state, user) {
+      state.user = user;
+      state.isAuthenticated = !!user;
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
+      } else {
+        localStorage.removeItem('user');
+      }
+    },
+    SET_USER_FROM_STORAGE(state, user) {
       state.user = user;
       state.isAuthenticated = !!user;
     },
@@ -34,12 +49,15 @@ export default createStore({
     },
     SET_CHANNELS(state, channels) {
       state.channels = channels;
+      localStorage.setItem('channels', JSON.stringify(channels));
     },
     ADD_CHANNEL(state, channel) {
       state.channels.push(channel);
+      localStorage.setItem('channels', JSON.stringify(state.channels));
     },
     SET_CURRENT_CHANNEL(state, channel) {
       state.currentChannel = channel;
+      localStorage.setItem('currentChannel', JSON.stringify(channel));
     },
     SET_MESSAGES(state, messages) {
       state.messages = messages;
@@ -49,6 +67,7 @@ export default createStore({
     },
     SET_USERS(state, users) {
       state.users = users;
+      localStorage.setItem('users', JSON.stringify(users));
     },
     ADD_ONLINE_USER(state, userId) {
       state.onlineUsers.add(userId);
@@ -68,6 +87,16 @@ export default createStore({
   },
   
   actions: {
+    initializeStore({ commit }) {
+      const token = localStorage.getItem('token');
+      const user = localStorage.getItem('user');
+      
+      if (token && user) {
+        commit('SET_TOKEN', token);
+        commit('SET_USER_FROM_STORAGE', JSON.parse(user));
+      }
+    },
+    
     async register({ commit }, userData) {
       commit('SET_LOADING', true);
       commit('CLEAR_ERROR');
@@ -105,15 +134,21 @@ export default createStore({
     },
     
     async getCurrentUser({ commit }) {
-      if (!localStorage.getItem('token')) return;
+      const token = localStorage.getItem('token');
+      if (!token) return;
       
       try {
         const response = await axios.get(`${API_URL}/auth/me`);
         commit('SET_USER', response.data.user);
-        commit('SET_TOKEN', localStorage.getItem('token'));
-      } catch (error) {
-        commit('SET_TOKEN', null);
-        commit('SET_USER', null);
+        commit('SET_TOKEN', token);
+      } catch (error: any) {
+        // Only clear token if it's a 401 (unauthorized) error
+        if (error.response?.status === 401) {
+          commit('SET_TOKEN', null);
+          commit('SET_USER', null);
+        }
+        // For other errors (network, server down), keep the token and try again later
+        console.warn('Failed to get current user, but keeping token:', error.message);
       }
     },
     
@@ -124,14 +159,19 @@ export default createStore({
       commit('SET_MESSAGES', []);
       commit('SET_CURRENT_CHANNEL', null);
       commit('SET_USERS', []);
+      // Clear localStorage
+      localStorage.removeItem('channels');
+      localStorage.removeItem('currentChannel');
+      localStorage.removeItem('users');
     },
     
     async fetchChannels({ commit }) {
       try {
         const response = await axios.get(`${API_URL}/channels`);
         commit('SET_CHANNELS', response.data);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching channels:', error);
+        // Don't clear existing channels on error, keep what we have in localStorage
       }
     },
     
@@ -148,7 +188,9 @@ export default createStore({
     
     async fetchMessages({ commit }, channelId) {
       try {
+        console.log('Fetching messages for channel:', channelId);
         const response = await axios.get(`${API_URL}/channels/${channelId}/messages`);
+        console.log('Messages response:', response.data);
         commit('SET_MESSAGES', response.data);
       } catch (error) {
         console.error('Error fetching messages:', error);
@@ -159,8 +201,9 @@ export default createStore({
       try {
         const response = await axios.get(`${API_URL}/users`);
         commit('SET_USERS', response.data);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching users:', error);
+        // Don't clear existing users on error, keep what we have in localStorage
       }
     },
     
