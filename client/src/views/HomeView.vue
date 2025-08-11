@@ -23,7 +23,7 @@ export default defineComponent({
 
     onMounted(() => {
       // Connect to the server. The URL is where your Node server is running.
-      socket = io("http://localhost:3001");
+      socket = io(process.env.VUE_APP_SOCKET_URL || "http://localhost:3001");
 
       // Listen for incoming messages
       socket.on("chat message", (msg: string) => {

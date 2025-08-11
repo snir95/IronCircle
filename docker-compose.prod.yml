@@ -3,7 +3,7 @@ version: '3.8'
 services:
   server:
     build:
-      context: ./server
+      context: ./Server
       dockerfile: Dockerfile.prod
     # In production, we don't mount volumes for code
     volumes: []
@@ -22,4 +22,12 @@ services:
       # Nginx serves on port 80, which we map to host port 80
       - "80:80"
     restart: always
+    networks:
+      - app-network
+    depends_on:
+      - server
+
+networks:
+  app-network:
+    driver: bridge
     
