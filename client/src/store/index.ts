@@ -18,6 +18,7 @@ export default createStore({
     messages: [] as any[],
     channelMessages: JSON.parse(localStorage.getItem('channelMessages') || '{}') as Record<string, any[]>,
     users: JSON.parse(localStorage.getItem('users') || '[]') as any[],
+    publicChannelResults: [] as any[],
     onlineUsers: new Set() as Set<string>,
     isAuthenticated: !!(localStorage.getItem('token')),
     loading: false,
@@ -61,25 +62,42 @@ export default createStore({
       localStorage.setItem('currentChannel', JSON.stringify(channel));
     },
     SET_MESSAGES(state, messages) {
-      state.messages = messages;
+      // De-duplicate by _id in case of repeated events
+      const seen = new Set<string>();
+      state.messages = (messages || []).filter((m: any) => {
+        if (!m || !m._id) return true;
+        if (seen.has(m._id)) return false;
+        seen.add(m._id);
+        return true;
+      });
     },
     SET_CHANNEL_MESSAGES(state, payload: { channelId: string; messages: any[] }) {
       state.channelMessages[payload.channelId] = payload.messages;
       localStorage.setItem('channelMessages', JSON.stringify(state.channelMessages));
     },
     ADD_MESSAGE(state, message) {
+      if (!message) return;
+      const id = message._id;
+      if (id && state.messages.some((m: any) => m && m._id === id)) return;
       state.messages.push(message);
     },
     ADD_CHANNEL_MESSAGE(state, payload: { channelId: string; message: any }) {
       if (!state.channelMessages[payload.channelId]) {
         state.channelMessages[payload.channelId] = [];
       }
-      state.channelMessages[payload.channelId].push(payload.message);
+      const list = state.channelMessages[payload.channelId];
+      const id = payload.message?._id;
+      if (!(id && list.some((m: any) => m && m._id === id))) {
+        list.push(payload.message);
+      }
       localStorage.setItem('channelMessages', JSON.stringify(state.channelMessages));
     },
     SET_USERS(state, users) {
       state.users = users;
       localStorage.setItem('users', JSON.stringify(users));
+    },
+    SET_PUBLIC_CHANNEL_RESULTS(state, channels) {
+      state.publicChannelResults = channels || [];
     },
     ADD_ONLINE_USER(state, userId) {
       state.onlineUsers.add(userId);
@@ -198,10 +216,14 @@ export default createStore({
       }
     },
     
-    async fetchMessages({ commit }, channelId) {
+    async fetchMessages({ commit }, channelIdOrPayload: any) {
       try {
-        console.log('Fetching messages for channel:', channelId);
-        const response = await axios.get(`${API_URL}/channels/${channelId}/messages`);
+        const channelId = typeof channelIdOrPayload === 'string' ? channelIdOrPayload : channelIdOrPayload.channelId;
+        const q = typeof channelIdOrPayload === 'object' ? channelIdOrPayload.q : undefined;
+        console.log('Fetching messages for channel:', channelId, q ? `(q="${q}")` : '');
+        const response = await axios.get(`${API_URL}/channels/${channelId}/messages`, {
+          params: q ? { q } : undefined
+        });
         console.log('Messages response:', response.data);
         commit('SET_MESSAGES', response.data);
         commit('SET_CHANNEL_MESSAGES', { channelId, messages: response.data });
@@ -217,6 +239,23 @@ export default createStore({
       } catch (error: any) {
         console.error('Error fetching users:', error);
         // Don't clear existing users on error, keep what we have in localStorage
+      }
+    },
+    async searchPublicChannels({ commit }, q: string) {
+      try {
+        const response = await axios.get(`${API_URL}/channels/search/public`, { params: { q } });
+        commit('SET_PUBLIC_CHANNEL_RESULTS', response.data);
+      } catch (error) {
+        console.error('Error searching public channels:', error);
+      }
+    },
+    async joinPublicChannel({ dispatch }, channelId: string) {
+      try {
+        await axios.post(`${API_URL}/channels/${channelId}/join`);
+        await dispatch('fetchChannels');
+      } catch (error) {
+        console.error('Error joining channel:', error);
+        throw error;
       }
     },
     async fetchPrivateMessages({ commit }, userId: string) {

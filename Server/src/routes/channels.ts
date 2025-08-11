@@ -10,14 +10,14 @@ interface AuthRequest extends express.Request {
 
 const router = express.Router();
 
-// Get all channels (public channels and private channels user is member of)
+const isAdmin = (channel: any, userId: any) =>
+  channel.admins?.some((id: any) => id.toString() === userId.toString());
+
+// Get all channels the user is a member of
 router.get('/', auth, async (req: AuthRequest, res) => {
   try {
     const channels = await Channel.find({
-      $or: [
-        { isPrivate: false },
-        { members: req.user._id }
-      ]
+      members: req.user._id
     }).populate('createdBy', 'username');
     
     res.json(channels);
@@ -51,10 +51,11 @@ router.post('/', auth, async (req: AuthRequest, res) => {
   }
 });
 
-// Get channel messages
+// Get channel messages (with optional search q)
 router.get('/:channelId/messages', auth, async (req: AuthRequest, res) => {
   try {
     const { channelId } = req.params;
+    const { q } = req.query as { q?: string };
     
     // Check if user is member of the channel
     const channel = await Channel.findById(channelId);
@@ -66,7 +67,12 @@ router.get('/:channelId/messages', auth, async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     
-    const messages = await Message.find({ channel: channelId })
+    const filter: any = { channel: channelId };
+    if (q && typeof q === 'string') {
+      filter.content = { $regex: q, $options: 'i' };
+    }
+
+    const messages = await Message.find(filter)
       .populate('sender', 'username avatar')
       .sort({ createdAt: 1 })
       .limit(100);
@@ -133,3 +139,104 @@ router.post('/:channelId/leave', auth, async (req: AuthRequest, res) => {
 });
 
 export default router;
+
+// Update channel metadata (name, description) - admins only
+router.put('/:channelId', auth, async (req: AuthRequest, res) => {
+  try {
+    const { channelId } = req.params;
+    const { name, description } = req.body as { name?: string; description?: string };
+
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ message: 'Channel not found' });
+    if (!isAdmin(channel, req.user._id)) return res.status(403).json({ message: 'Admin only' });
+
+    if (typeof name === 'string') channel.name = name;
+    if (typeof description === 'string') channel.description = description;
+    await channel.save();
+    res.json(channel);
+  } catch (error) {
+    console.error('Error updating channel:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Invite user to channel (admin only)
+router.post('/:channelId/invite', auth, async (req: AuthRequest, res) => {
+  try {
+    const { channelId } = req.params;
+    const { userId } = req.body as { userId: string };
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ message: 'Channel not found' });
+    if (!isAdmin(channel, req.user._id)) return res.status(403).json({ message: 'Admin only' });
+
+    if (!channel.members.some((id: any) => id.toString() === userId)) {
+      channel.members.push(userId as any);
+      await channel.save();
+    }
+    res.json({ message: 'User invited/added' });
+  } catch (error) {
+    console.error('Error inviting user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Modify admins (add/remove) - admin only
+router.post('/:channelId/admins', auth, async (req: AuthRequest, res) => {
+  try {
+    const { channelId } = req.params;
+    const { userId, action } = req.body as { userId: string; action: 'add' | 'remove' };
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ message: 'Channel not found' });
+    if (!isAdmin(channel, req.user._id)) return res.status(403).json({ message: 'Admin only' });
+
+    if (action === 'add') {
+      if (!channel.admins.some((id: any) => id.toString() === userId)) {
+        channel.admins.push(userId as any);
+      }
+    } else if (action === 'remove') {
+      channel.admins = channel.admins.filter((id: any) => id.toString() !== userId);
+    }
+    await channel.save();
+    res.json(channel);
+  } catch (error) {
+    console.error('Error modifying admins:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Remove member - admin only
+router.delete('/:channelId/members/:userId', auth, async (req: AuthRequest, res) => {
+  try {
+    const { channelId, userId } = req.params as { channelId: string; userId: string };
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ message: 'Channel not found' });
+    if (!isAdmin(channel, req.user._id)) return res.status(403).json({ message: 'Admin only' });
+
+    channel.members = channel.members.filter((id: any) => id.toString() !== userId);
+    channel.admins = channel.admins.filter((id: any) => id.toString() !== userId);
+    await channel.save();
+    res.json({ message: 'Member removed' });
+  } catch (error) {
+    console.error('Error removing member:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Search public channels not joined by current user
+router.get('/search/public', auth, async (req: AuthRequest, res) => {
+  try {
+    const { q } = req.query as { q?: string };
+    const criteria: any = {
+      isPrivate: false,
+      members: { $ne: req.user._id }
+    };
+    if (q && typeof q === 'string') {
+      criteria.name = { $regex: q, $options: 'i' };
+    }
+    const channels = await Channel.find(criteria).select('name description isPrivate');
+    res.json(channels);
+  } catch (error) {
+    console.error('Error searching channels:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});

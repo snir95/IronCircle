@@ -16,6 +16,28 @@
           <h4>Channels</h4>
           <button @click="showCreateChannel = true" class="add-btn">+</button>
         </div>
+        <div class="channel-search" ref="channelSearchWrap">
+          <input
+            v-model="channelSearch"
+            @focus="openChannelDropdown"
+            @keyup.enter="performChannelSearch"
+            @input="onChannelSearchInput"
+            placeholder="Search public channels..."
+            class="message-input"
+          />
+          <div v-show="showChannelDropdown" class="public-channel-dropdown">
+            <div
+              v-for="pub in publicChannelResults"
+              :key="pub._id"
+              class="channel-item public-result"
+              @click="joinAndOpen(pub)"
+            >
+              <span class="channel-name"># {{ pub.name }}</span>
+              <span class="join-indicator">Join</span>
+            </div>
+            <div v-if="!publicChannelResults.length" class="public-empty">No more channels to show</div>
+          </div>
+        </div>
         <div class="channel-list">
           <div
             v-for="channel in channels"
@@ -132,7 +154,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, onMounted, nextTick, watch } from 'vue';
+import { defineComponent, ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
 import { io, Socket } from 'socket.io-client';
@@ -148,6 +170,9 @@ export default defineComponent({
     // Reactive data
     const newMessage = ref('');
     const showCreateChannel = ref(false);
+    const channelSearch = ref('');
+    const showChannelDropdown = ref(false);
+    const channelSearchWrap = ref<HTMLElement | null>(null);
     const currentPrivateChat = ref<any>(null);
     const typingUsers = ref<string[]>([]);
     const typingTimeout = ref<number | null>(null);
@@ -164,10 +189,17 @@ export default defineComponent({
     const currentChannel = computed(() => store.getters.currentChannel);
     const messages = computed(() => store.getters.messages);
     const users = computed(() => store.getters.users);
+    const publicChannelResults = computed(() => store.state.publicChannelResults);
     const isUserOnline = computed(() => store.getters.isUserOnline);
     
     // Methods
-         const connectSocket = () => {
+    const connectSocket = () => {
+      // Cleanup any existing socket to avoid duplicate listeners
+      if (socket.value) {
+        try { socket.value.off(); } catch {}
+        try { socket.value.offAny?.(); } catch {}
+        try { socket.value.disconnect(); } catch {}
+      }
        const token = store.getters.token;
        console.log('Attempting to connect socket with token:', token ? 'present' : 'missing');
        console.log('Token value:', token);
@@ -200,12 +232,15 @@ export default defineComponent({
          }
        });
       
+      // Ensure single handler registration
+      socket.value.off('new_message');
       socket.value.on('new_message', (message) => {
         console.log('Received new_message:', message);
         store.dispatch('addMessage', message);
         scrollToBottom();
       });
       
+      socket.value.off('private_message');
       socket.value.on('private_message', (message) => {
         console.log('Received private_message:', message);
         store.dispatch('addMessage', message);
@@ -246,6 +281,46 @@ export default defineComponent({
       store.dispatch('fetchMessages', channel._id);
       socket.value?.emit('join_channel', channel._id);
       scrollToBottom();
+    };
+
+    const performChannelSearch = async () => {
+      const q = channelSearch.value.trim();
+      if (!q) return;
+      await store.dispatch('searchPublicChannels', q);
+      showChannelDropdown.value = true;
+    };
+
+    const joinAndOpen = async (pub: any) => {
+      try {
+        await store.dispatch('joinPublicChannel', pub._id);
+        channelSearch.value = '';
+        await store.dispatch('searchPublicChannels', '');
+        closeChannelDropdown();
+        const joined = (channels.value as any[]).find(c => c._id === pub._id);
+        if (joined) selectChannel(joined);
+      } catch (e) {}
+    };
+
+    const openChannelDropdown = async () => {
+      showChannelDropdown.value = true;
+      // Load a few suggestions with empty query
+      await store.dispatch('searchPublicChannels', '');
+    };
+
+    const closeChannelDropdown = () => {
+      showChannelDropdown.value = false;
+    };
+
+    const onChannelSearchInput = async () => {
+      await store.dispatch('searchPublicChannels', channelSearch.value.trim());
+      showChannelDropdown.value = true;
+    };
+
+    const onClickOutside = (e: MouseEvent) => {
+      if (!channelSearchWrap.value) return;
+      if (!channelSearchWrap.value.contains(e.target as Node)) {
+        closeChannelDropdown();
+      }
     };
     
     const startPrivateChat = (user: any) => {
@@ -355,6 +430,19 @@ export default defineComponent({
     watch(messages, () => {
       scrollToBottom();
     });
+
+    onMounted(() => {
+      document.addEventListener('click', onClickOutside);
+    });
+
+    onBeforeUnmount(() => {
+      document.removeEventListener('click', onClickOutside);
+      if (socket.value) {
+        try { socket.value.off(); } catch {}
+        try { socket.value.offAny?.(); } catch {}
+        try { socket.value.disconnect(); } catch {}
+      }
+    });
     
     return {
       newMessage,
@@ -368,8 +456,17 @@ export default defineComponent({
       currentChannel,
       messages,
       users,
+      publicChannelResults,
+      channelSearch,
+      showChannelDropdown,
+      channelSearchWrap,
       isUserOnline,
       selectChannel,
+      performChannelSearch,
+      joinAndOpen,
+      openChannelDropdown,
+      closeChannelDropdown,
+      onChannelSearchInput,
       startPrivateChat,
       sendMessage,
       handleTyping,
@@ -482,6 +579,38 @@ export default defineComponent({
 .channel-item.active {
   background: #667eea;
   color: white;
+}
+
+.public-channel-dropdown {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 6px;
+  margin-top: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+
+.channel-item.public-result {
+  background: #f7fbff;
+  border: 1px dashed #bcdcff;
+}
+
+.channel-item.public-result:hover {
+  background: #eef7ff;
+}
+
+.join-indicator {
+  font-size: 12px;
+  color: #1e88e5;
+  margin-left: auto;
+}
+
+.public-empty {
+  padding: 8px 12px;
+  color: #777;
+  font-size: 13px;
 }
 
 .channel-name {
