@@ -100,24 +100,34 @@ io.on('connection', (socket: AuthenticatedSocket) => {
   });
 
   // Send message to channel
-  socket.on('send_message', async (data: { channelId: string; content: string; messageType?: string }) => {
-    console.log('Received send_message:', data);
-    if (!socket.userId) {
-      console.log('No userId, returning');
-      return;
+  socket.on('send_message', async (data: { 
+    channelId: string; 
+    content: string; 
+    messageType?: 'text' | 'image' | 'video' | 'file',
+    fileData?: string;
+    fileName?: string;
+    fileMimeType?: string;
+    fileSize?: number;
+  }) => {
+    if (!socket.userId) return;
+
+    if (data.fileSize && data.fileSize > 5 * 1024 * 1024) { // 5MB limit
+      return socket.emit('message_error', { message: 'File size exceeds 5MB limit.' });
     }
 
     try {
-      console.log('Creating message for channel:', data.channelId);
       const message = new Message({
         content: data.content,
         sender: socket.userId,
         channel: data.channelId,
-        messageType: data.messageType || 'text'
+        messageType: data.fileData ? 'file' : 'text',
+        fileData: data.fileData,
+        fileName: data.fileName,
+        fileMimeType: data.fileMimeType,
+        fileSize: data.fileSize,
       });
 
       await message.save();
-      console.log('Message saved:', message._id);
       await message.populate('sender', 'username avatar');
 
       const messageData = {
@@ -126,10 +136,13 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         sender: message.sender,
         channel: message.channel,
         messageType: message.messageType,
+        fileData: message.fileData,
+        fileName: message.fileName,
+        fileMimeType: message.fileMimeType,
+        fileSize: message.fileSize,
         createdAt: message.createdAt
       };
 
-      console.log('Emitting new_message to channel:', data.channelId);
       io.to(`channel_${data.channelId}`).emit('new_message', messageData);
     } catch (error) {
       console.error('Error saving message:', error);
@@ -138,15 +151,31 @@ io.on('connection', (socket: AuthenticatedSocket) => {
   });
 
   // Private message
-  socket.on('private_message', async (data: { recipientId: string; content: string }) => {
+  socket.on('private_message', async (data: { 
+    recipientId: string; 
+    content: string;
+    messageType?: 'text' | 'image' | 'video' | 'file',
+    fileData?: string;
+    fileName?: string;
+    fileMimeType?: string;
+    fileSize?: number;
+  }) => {
     if (!socket.userId) return;
+
+    if (data.fileSize && data.fileSize > 5 * 1024 * 1024) { // 5MB limit
+      return socket.emit('message_error', { message: 'File size exceeds 5MB limit.' });
+    }
 
     try {
       const message = new Message({
         content: data.content,
         sender: socket.userId,
         recipient: data.recipientId,
-        messageType: 'text'
+        messageType: data.fileData ? 'file' : 'text',
+        fileData: data.fileData,
+        fileName: data.fileName,
+        fileMimeType: data.fileMimeType,
+        fileSize: data.fileSize,
       });
 
       await message.save();
@@ -158,6 +187,10 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         sender: message.sender,
         recipient: message.recipient,
         messageType: message.messageType,
+        fileData: message.fileData,
+        fileName: message.fileName,
+        fileMimeType: message.fileMimeType,
+        fileSize: message.fileSize,
         createdAt: message.createdAt
       };
 

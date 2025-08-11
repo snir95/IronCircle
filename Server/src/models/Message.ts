@@ -6,8 +6,8 @@ export interface IMessage extends mongoose.Document {
   channel?: mongoose.Types.ObjectId;
   recipient?: mongoose.Types.ObjectId;
   messageType: 'text' | 'image' | 'video' | 'file';
-  // File upload fields - for future implementation
-  fileUrl?: string;
+  fileData?: string;
+  fileMimeType?: string;
   fileName?: string;
   fileSize?: number;
   isEdited: boolean;
@@ -22,7 +22,7 @@ export interface IMessage extends mongoose.Document {
 const messageSchema = new mongoose.Schema<IMessage>({
   content: {
     type: String,
-    required: true,
+    required: false,
     trim: true,
     maxlength: 2000
   },
@@ -44,8 +44,10 @@ const messageSchema = new mongoose.Schema<IMessage>({
     enum: ['text', 'image', 'video', 'file'],
     default: 'text'
   },
-  // File upload fields - for future implementation
-  fileUrl: {
+  fileData: {
+    type: String
+  },
+  fileMimeType: {
     type: String
   },
   fileName: {

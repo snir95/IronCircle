@@ -136,7 +136,19 @@
               <span class="message-author">{{ message.sender.username }}</span>
               <span class="message-time">{{ formatTime(message.createdAt) }}</span>
             </div>
-            <div class="message-content">{{ message.content }}</div>
+            <div class="message-content">
+              <div v-if="message.content">{{ message.content }}</div>
+              <div v-if="message.fileData" class="file-attachment">
+                <div class="file-info-container">
+                  <span class="file-icon">📄</span>
+                  <div class="file-details">
+                    <span class="file-name-display">{{ message.fileName }}</span>
+                    <span class="file-size-display">{{ formatFileSize(message.fileSize) }}</span>
+                  </div>
+                </div>
+                <button @click="downloadFile(message.fileData, message.fileName, message.fileMimeType)" class="download-btn">Download</button>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -147,17 +159,25 @@
         
         <!-- Message Input -->
         <div class="message-input-container">
-          <input
-            v-model="newMessage"
-            @keyup.enter="sendMessage"
-            @input="handleTyping"
-            placeholder="Type a message..."
-            class="message-input"
-            :disabled="!currentChannel && !currentPrivateChat"
-          />
-          <button @click="sendMessage" class="send-btn" :disabled="!newMessage.trim()">
-            Send
-          </button>
+          <div v-if="selectedFile" class="file-staging">
+            <span class="file-name">{{ selectedFile.name }}</span>
+            <button @click="removeSelectedFile" class="remove-file-btn">&times;</button>
+          </div>
+          <div class="input-wrapper">
+            <input
+              v-model="newMessage"
+              @keyup.enter="sendMessage"
+              @input="handleTyping"
+              placeholder="Type a message..."
+              class="message-input"
+              :disabled="!currentChannel && !currentPrivateChat"
+            />
+            <input type="file" @change="handleFileUpload" ref="fileInput" style="display: none;" />
+            <button @click="triggerFileUpload" class="attach-btn">📎</button>
+            <button @click="sendMessage" class="send-btn" :disabled="!newMessage.trim() && !selectedFile">
+              Send
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -196,6 +216,7 @@ import { defineComponent, ref, computed, onMounted, onBeforeUnmount, nextTick, w
 import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
 import { io, Socket } from 'socket.io-client';
+import { useToast } from 'vue-toastification';
 
 export default defineComponent({
   name: 'ChatInterface',
@@ -204,9 +225,12 @@ export default defineComponent({
     const router = useRouter();
     const socket = ref<Socket | null>(null);
     const messagesContainer = ref<HTMLElement | null>(null);
+    const toast = useToast();
     
     // Reactive data
     const newMessage = ref('');
+    const selectedFile = ref<File | null>(null);
+    const fileInput = ref<HTMLInputElement | null>(null);
     const showCreateChannel = ref(false);
     const channelSearch = ref('');
     const showChannelDropdown = ref(false);
@@ -285,16 +309,25 @@ export default defineComponent({
       // Ensure single handler registration
       socket.value.off('new_message');
       socket.value.on('new_message', (message) => {
-        console.log('Received new_message:', message);
-        store.dispatch('addMessage', message);
-        scrollToBottom();
+        if (
+          (currentChannel.value && currentChannel.value._id === message.channel) ||
+          (currentPrivateChat.value && currentPrivateChat.value._id === message.sender._id)
+        ) {
+          store.dispatch('addMessage', message);
+          scrollToBottom();
+        }
       });
       
       socket.value.off('private_message');
       socket.value.on('private_message', (message) => {
-        console.log('Received private_message:', message);
-        store.dispatch('addMessage', message);
-        scrollToBottom();
+        if (
+          (currentPrivateChat.value &&
+            (message.recipient === currentPrivateChat.value._id || message.sender._id === currentPrivateChat.value._id)
+          )
+        ) {
+          store.dispatch('addMessage', message);
+          scrollToBottom();
+        }
       });
       
       socket.value.on('user_typing', (data) => {
@@ -393,7 +426,7 @@ export default defineComponent({
       if (!currentChannel.value) return;
       const action = isAdmin(member) ? 'remove' : 'add';
       try {
-        await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/admins`, {
+        const res = await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/admins`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -401,21 +434,81 @@ export default defineComponent({
           },
           body: JSON.stringify({ userId: member._id, action })
         });
+        if (!res.ok) {
+          const err = await res.json();
+          toast.error(err.message || 'Action failed');
+          return;
+        }
         await store.dispatch('fetchChannels');
         await openChannelPanel();
-      } catch {}
+      } catch {
+        toast.error('An unexpected error occurred');
+      }
     };
 
     const removeMember = async (member: any) => {
       if (!currentChannel.value) return;
       try {
-        await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/members/${member._id}`, {
+        const res = await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/members/${member._id}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${store.getters.token}` }
         });
+        if (!res.ok) {
+          const err = await res.json();
+          toast.error(err.message || 'Action failed');
+          return;
+        }
         await store.dispatch('fetchChannels');
         await openChannelPanel();
-      } catch {}
+      } catch {
+        toast.error('An unexpected error occurred');
+      }
+    };
+
+    const isImage = (mimeType?: string) => {
+      return mimeType?.startsWith('image/');
+    };
+
+    const formatFileSize = (bytes?: number) => {
+      if (!bytes) return '';
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    const downloadFile = (fileData: string, fileName: string, mimeType?: string) => {
+      const link = document.createElement('a');
+      link.href = fileData;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    const triggerFileUpload = () => {
+      fileInput.value?.click();
+    };
+
+    const handleFileUpload = (event: Event) => {
+      const target = event.target as HTMLInputElement;
+      if (target.files && target.files.length > 0) {
+        const file = target.files[0];
+        if (file.size > 5 * 1024 * 1024) { // 5MB limit
+          toast.error('File size exceeds 5MB limit.');
+          return;
+        }
+        selectedFile.value = file;
+        toast.info(`Selected file: ${file.name}`);
+      }
+    };
+
+    const removeSelectedFile = () => {
+      selectedFile.value = null;
+      if (fileInput.value) {
+        fileInput.value.value = '';
+      }
     };
 
     const performChannelSearch = async () => {
@@ -472,35 +565,44 @@ export default defineComponent({
     };
     
     const sendMessage = () => {
-      if (!newMessage.value.trim()) return;
+      if (!newMessage.value.trim() && !selectedFile.value) return;
       
-      console.log('Sending message:', newMessage.value);
-      console.log('Current channel:', currentChannel.value);
-      console.log('Socket connected:', socket.value?.connected);
-      
-             if (currentChannel.value) {
-         console.log('Emitting send_message to channel:', currentChannel.value._id);
-         if (socket.value?.connected) {
-           socket.value.emit('send_message', {
-             channelId: currentChannel.value._id,
-             content: newMessage.value
-           });
-         } else {
-           console.error('Socket not connected! Cannot send message.');
-         }
-       } else if (currentPrivateChat.value) {
-         console.log('Emitting private_message to user:', currentPrivateChat.value._id);
-         if (socket.value?.connected) {
-           socket.value.emit('private_message', {
-             recipientId: currentPrivateChat.value._id,
-             content: newMessage.value
-           });
-         } else {
-           console.error('Socket not connected! Cannot send message.');
-         }
-       }
-      
-      newMessage.value = '';
+      const reader = new FileReader();
+      const file = selectedFile.value;
+
+      const send = (fileData?: string) => {
+        const messagePayload: any = {
+          content: newMessage.value,
+        };
+
+        if (file && fileData) {
+          messagePayload.fileData = fileData;
+          messagePayload.fileName = file.name;
+          messagePayload.fileMimeType = file.type;
+          messagePayload.fileSize = file.size;
+        }
+
+        if (currentChannel.value) {
+          messagePayload.channelId = currentChannel.value._id,
+          socket.value?.emit('send_message', messagePayload);
+        } else if (currentPrivateChat.value) {
+          messagePayload.recipientId = currentPrivateChat.value._id,
+          socket.value?.emit('private_message', messagePayload);
+        }
+        
+        newMessage.value = '';
+        selectedFile.value = null;
+        if (fileInput.value) fileInput.value.value = '';
+      };
+
+      if (file) {
+        reader.onload = (e) => {
+          send(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        send();
+      }
     };
     
     const handleTyping = () => {
@@ -621,6 +723,14 @@ export default defineComponent({
       isAdmin,
       toggleAdmin,
       removeMember,
+      isImage,
+      downloadFile,
+      formatFileSize,
+      triggerFileUpload,
+      handleFileUpload,
+      fileInput,
+      selectedFile,
+      removeSelectedFile,
       startPrivateChat,
       sendMessage,
       handleTyping,
@@ -903,9 +1013,66 @@ export default defineComponent({
   line-height: 1.4;
 }
 
+.file-attachment {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f1f3f5;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.file-info-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-icon {
+  font-size: 24px;
+}
+
+.file-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-name-display {
+  font-weight: 500;
+}
+
+.file-size-display {
+  font-size: 12px;
+  color: #666;
+}
+
+.chat-image {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.download-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
 .message.own-message .message-content {
   background: #667eea;
   color: white;
+}
+
+.message.own-message .file-attachment {
+  background-color: #5a67d8;
+}
+
+.message.own-message .file-size-display {
+  color: #e2e8f0;
 }
 
 .typing-indicator {
@@ -919,6 +1086,12 @@ export default defineComponent({
   padding: 20px;
   background: white;
   border-top: 1px solid #e1e5e9;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.input-wrapper {
   display: flex;
   gap: 12px;
 }
@@ -945,6 +1118,39 @@ export default defineComponent({
   border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
+}
+
+.attach-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+.file-staging {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  background-color: #f0f2f5;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remove-file-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #666;
+  padding: 0 5px;
 }
 
 .send-btn:hover:not(:disabled) {
