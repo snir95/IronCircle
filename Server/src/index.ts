@@ -56,8 +56,6 @@ app.get('/', (req: Request, res: Response) => {
 const connectedUsers = new Map();
 
 io.on('connection', (socket: AuthenticatedSocket) => {
-  console.log('A user connected with socket ID:', socket.id);
-
   // Authenticate user
   socket.on('authenticate', async (token: string) => {
     try {
@@ -87,7 +85,6 @@ io.on('connection', (socket: AuthenticatedSocket) => {
   socket.on('join_channel', async (channelId: string) => {
     if (socket.userId) {
       socket.join(`channel_${channelId}`);
-      console.log(`User ${socket.username} joined channel ${channelId}`);
     }
   });
 
@@ -95,7 +92,6 @@ io.on('connection', (socket: AuthenticatedSocket) => {
   socket.on('leave_channel', (channelId: string) => {
     if (socket.userId) {
       socket.leave(`channel_${channelId}`);
-      console.log(`User ${socket.username} left channel ${channelId}`);
     }
   });
 
@@ -219,9 +215,97 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     }
   });
 
+  // Delete message
+  socket.on('delete_message', async (messageId: string) => {
+    if (!socket.userId) return;
+
+    try {
+      const message = await Message.findById(messageId);
+
+      if (!message) {
+        return socket.emit('message_error', { message: 'Message not found' });
+      }
+
+      if (message.sender.toString() !== socket.userId) {
+        return socket.emit('message_error', { message: 'You can only delete your own messages' });
+      }
+
+      // Soft delete
+      message.isDeleted = true;
+      message.content = 'This message has been deleted.';
+      message.fileData = undefined;
+      message.fileName = undefined;
+      message.fileMimeType = undefined;
+      message.fileSize = undefined;
+      await message.save();
+
+      const deletedMessageData = {
+        _id: message._id,
+        channel: message.channel,
+        recipient: message.recipient
+      };
+
+      if (message.channel) {
+        io.to(`channel_${message.channel}`).emit('message_deleted', deletedMessageData);
+      } else if (message.recipient) {
+        const recipientSocketId = connectedUsers.get(message.recipient.toString());
+        if (recipientSocketId) {
+          io.to(recipientSocketId).emit('message_deleted', deletedMessageData);
+        }
+        socket.emit('message_deleted', deletedMessageData);
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      socket.emit('message_error', { message: 'Failed to delete message' });
+    }
+  });
+
+  // Edit message
+  socket.on('edit_message', async ({ messageId, newContent }: { messageId: string, newContent: string }) => {
+    if (!socket.userId) return;
+
+    try {
+      const message = await Message.findById(messageId);
+
+      if (!message) {
+        return socket.emit('message_error', { message: 'Message not found' });
+      }
+
+      if (message.sender.toString() !== socket.userId) {
+        return socket.emit('message_error', { message: 'You can only edit your own messages' });
+      }
+
+      message.content = newContent;
+      message.isEdited = true;
+      await message.save();
+      await message.populate('sender', 'username avatar');
+
+      const editedMessageData = {
+        _id: message._id,
+        content: message.content,
+        sender: message.sender,
+        channel: message.channel,
+        recipient: message.recipient,
+        isEdited: message.isEdited,
+        updatedAt: message.updatedAt
+      };
+
+      if (message.channel) {
+        io.to(`channel_${message.channel}`).emit('message_edited', editedMessageData);
+      } else if (message.recipient) {
+        const recipientSocketId = connectedUsers.get(message.recipient.toString());
+        if (recipientSocketId) {
+          io.to(recipientSocketId).emit('message_edited', editedMessageData);
+        }
+        socket.emit('message_edited', editedMessageData);
+      }
+    } catch (error) {
+      console.error('Error editing message:', error);
+      socket.emit('message_error', { message: 'Failed to edit message' });
+    }
+  });
+
   socket.on('disconnect', async () => {
-    console.log('User disconnected:', socket.id);
-    
     if (socket.userId) {
       connectedUsers.delete(socket.userId);
       

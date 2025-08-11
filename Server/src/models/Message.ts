@@ -6,10 +6,10 @@ export interface IMessage extends mongoose.Document {
   channel?: mongoose.Types.ObjectId;
   recipient?: mongoose.Types.ObjectId;
   messageType: 'text' | 'image' | 'video' | 'file';
-  fileData?: string;
-  fileMimeType?: string;
-  fileName?: string;
-  fileSize?: number;
+  fileData?: string | undefined;
+  fileMimeType?: string | undefined;
+  fileName?: string | undefined;
+  fileSize?: number | undefined;
   isEdited: boolean;
   editedAt?: Date;
   isDeleted: boolean;

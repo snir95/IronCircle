@@ -92,6 +92,12 @@ export default createStore({
       }
       localStorage.setItem('channelMessages', JSON.stringify(state.channelMessages));
     },
+    UPDATE_MESSAGE(state, updatedMessage) {
+      const index = state.messages.findIndex(m => m._id === updatedMessage._id);
+      if (index !== -1) {
+        state.messages.splice(index, 1, updatedMessage);
+      }
+    },
     SET_USERS(state, users) {
       state.users = users;
       localStorage.setItem('users', JSON.stringify(users));
@@ -289,6 +295,30 @@ export default createStore({
     
     userOffline({ commit }, userId) {
       commit('REMOVE_ONLINE_USER', userId);
+    },
+    
+    deleteMessage({ commit, state }, messageId) {
+      const message = state.messages.find(m => m._id === messageId);
+      if (message) {
+        const updatedMessage = {
+          ...message,
+          content: 'This message has been deleted.',
+          isDeleted: true,
+          fileData: undefined,
+          fileName: undefined,
+          fileMimeType: undefined,
+          fileSize: undefined,
+        };
+        commit('UPDATE_MESSAGE', updatedMessage);
+      }
+    },
+    
+    editMessage({ commit, state }, updatedMessage) {
+      const message = state.messages.find(m => m._id === updatedMessage._id);
+      if (message) {
+        const newMessage = { ...message, ...updatedMessage };
+        commit('UPDATE_MESSAGE', newMessage);
+      }
     }
   },
   

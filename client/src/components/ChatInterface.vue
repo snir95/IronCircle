@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-container">
+  <div v-if="currentUser" class="chat-container">
     <!-- Sidebar -->
     <div class="sidebar">
       <div class="sidebar-header">
@@ -130,15 +130,17 @@
                      <div
              v-for="message in messages"
              :key="message._id"
-             :class="['message', { 'own-message': message.sender._id === currentUser?._id }]"
+             :class="['message', { 'own-message': message.sender._id === currentUser?._id, 'clickable': message.sender._id === currentUser?._id && !message.isDeleted }]"
+             @click="handleMessageClick(message)"
            >
             <div class="message-header">
               <span class="message-author">{{ message.sender.username }}</span>
               <span class="message-time">{{ formatTime(message.createdAt) }}</span>
+              <span v-if="message.isEdited" class="edited-indicator">(edited)</span>
             </div>
             <div class="message-content">
-              <div v-if="message.content">{{ message.content }}</div>
-              <div v-if="message.fileData" class="file-attachment">
+              <div v-if="message.content" :class="{ 'deleted-message': message.isDeleted }">{{ message.content }}</div>
+              <div v-if="message.fileData && !message.isDeleted" class="file-attachment">
                 <div class="file-info-container">
                   <span class="file-icon">📄</span>
                   <div class="file-details">
@@ -146,8 +148,12 @@
                     <span class="file-size-display">{{ formatFileSize(message.fileSize) }}</span>
                   </div>
                 </div>
-                <button @click="downloadFile(message.fileData, message.fileName, message.fileMimeType)" class="download-btn">Download</button>
+                <button @click.stop="downloadFile(message.fileData, message.fileName, message.fileMimeType)" class="download-btn">Download</button>
               </div>
+            </div>
+            <div class="message-actions-row" v-if="activeMessageMenu === message._id">
+              <button @click.stop="openEditModal(message)">Edit</button>
+              <button @click.stop="deleteMessage(message._id)">Delete</button>
             </div>
           </div>
         </div>
@@ -182,6 +188,22 @@
       </div>
     </div>
     
+    <!-- Edit Message Modal -->
+    <div v-if="showEditModal" class="modal-overlay" @click="closeEditModal">
+      <div class="modal" @click.stop>
+        <h3>Edit Message</h3>
+        <form @submit.prevent="submitEdit">
+          <div class="form-group">
+            <textarea v-model="editingMessageContent" class="message-input" rows="4"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" @click="closeEditModal">Cancel</button>
+            <button type="submit">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Create Channel Modal -->
     <div v-if="showCreateChannel" class="modal-overlay" @click="showCreateChannel = false">
       <div class="modal" @click.stop>
@@ -208,6 +230,9 @@
         </form>
       </div>
     </div>
+  </div>
+  <div v-else class="loading-container">
+    <h2>Loading Chat...</h2>
   </div>
 </template>
 
@@ -244,6 +269,10 @@ export default defineComponent({
     const channelMessageQueryDebounce = ref<number | null>(null);
     const channelEdit = ref<{ name: string; description: string }>({ name: '', description: '' });
     const channelMembers = ref<any[]>([]);
+    const activeMessageMenu = ref<string | null>(null);
+    const showEditModal = ref(false);
+    const editingMessage = ref<any>(null);
+    const editingMessageContent = ref('');
     
     const newChannel = ref({
       name: '',
@@ -275,9 +304,6 @@ export default defineComponent({
         try { socket.value.disconnect(); } catch {}
       }
        const token = store.getters.token;
-       console.log('Attempting to connect socket with token:', token ? 'present' : 'missing');
-       console.log('Token value:', token);
-       console.log('localStorage token:', localStorage.getItem('token'));
        if (!token) return;
       
              socket.value = io('http://localhost:3001');
@@ -291,15 +317,13 @@ export default defineComponent({
        });
       
              socket.value.on('connect', () => {
-         console.log('Connected to server');
-         console.log('Authenticating with token:', token);
+         console.log('Connected to server via WebSocket');
          socket.value?.emit('authenticate', token);
        });
       
              socket.value.on('authenticated', (data) => {
-         console.log('Authentication response:', data);
          if (data.success) {
-           console.log('Authenticated with server');
+           console.log('Socket authenticated successfully');
            loadInitialData();
          } else {
            console.error('Authentication failed:', data.message);
@@ -318,6 +342,16 @@ export default defineComponent({
         }
       });
       
+      socket.value.off('message_deleted');
+      socket.value.on('message_deleted', (data) => {
+        store.dispatch('deleteMessage', data._id);
+      });
+      
+      socket.value.off('message_edited');
+      socket.value.on('message_edited', (message) => {
+        store.dispatch('editMessage', message);
+      });
+
       socket.value.off('private_message');
       socket.value.on('private_message', (message) => {
         if (
@@ -463,6 +497,50 @@ export default defineComponent({
       } catch {
         toast.error('An unexpected error occurred');
       }
+    };
+
+    const handleMessageClick = (message: any) => {
+      // currentUser is guaranteed to exist here because of the v-if in the template
+      if (message.sender._id !== currentUser.value._id || message.isDeleted) {
+        return;
+      }
+      toggleMessageMenu(message._id);
+    };
+
+    const toggleMessageMenu = (messageId: string) => {
+      if (activeMessageMenu.value === messageId) {
+        activeMessageMenu.value = null;
+      } else {
+        activeMessageMenu.value = messageId;
+      }
+    };
+
+    const openEditModal = (message: any) => {
+      editingMessage.value = message;
+      editingMessageContent.value = message.content;
+      showEditModal.value = true;
+      activeMessageMenu.value = null;
+    };
+
+    const closeEditModal = () => {
+      showEditModal.value = false;
+      editingMessage.value = null;
+      editingMessageContent.value = '';
+    };
+
+    const submitEdit = () => {
+      if (editingMessage.value && editingMessageContent.value.trim()) {
+        socket.value?.emit('edit_message', {
+          messageId: editingMessage.value._id,
+          newContent: editingMessageContent.value
+        });
+        closeEditModal();
+      }
+    };
+
+    const deleteMessage = (messageId: string) => {
+      socket.value?.emit('delete_message', messageId);
+      activeMessageMenu.value = null;
     };
 
     const isImage = (mimeType?: string) => {
@@ -654,18 +732,13 @@ export default defineComponent({
     };
     
          // Lifecycle
-     onMounted(() => {
-       console.log('ChatInterface mounted');
-       console.log('Is authenticated:', store.getters.isAuthenticated);
-       console.log('Current user:', store.getters.currentUser);
-       
+     onMounted(async () => {
        if (!store.getters.isAuthenticated) {
-         console.log('Not authenticated, redirecting to login');
          router.push('/login');
          return;
        }
-       
-       console.log('User is authenticated, connecting socket');
+       // Fetch fresh user data to prevent race conditions
+       await store.dispatch('getCurrentUser');
        connectSocket();
      });
     
@@ -723,6 +796,14 @@ export default defineComponent({
       isAdmin,
       toggleAdmin,
       removeMember,
+      handleMessageClick,
+      activeMessageMenu,
+      openEditModal,
+      closeEditModal,
+      submitEdit,
+      showEditModal,
+      editingMessageContent,
+      deleteMessage,
       isImage,
       downloadFile,
       formatFileSize,
@@ -747,6 +828,15 @@ export default defineComponent({
   display: flex;
   height: 100vh;
   background: #f8f9fa;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-family: sans-serif;
+  color: #333;
 }
 
 .sidebar {
@@ -980,7 +1070,64 @@ export default defineComponent({
 
 .message {
   max-width: 70%;
+  position: relative;
   align-self: flex-start;
+  width: -moz-fit-content;
+  width: fit-content;
+  display: flex;
+  flex-direction: column;
+}
+
+.message.own-message {
+  align-self: flex-end;
+}
+
+.message.clickable {
+  cursor: pointer;
+}
+
+.message-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(0,0,0,0.1);
+  padding-top: 8px;
+}
+
+.message-actions-row button {
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: white;
+}
+
+.message-actions-row button:first-child {
+  background-color: #3b82f6;
+}
+
+.message-actions-row button:first-child:hover {
+  background-color: #2563eb;
+}
+
+.message-actions-row button:last-child {
+  background-color: #ef4444;
+}
+
+.message-actions-row button:last-child:hover {
+  background-color: #dc2626;
+}
+
+.message.own-message .message-actions-row {
+  border-top: 1px solid rgba(255,255,255,0.2);
+  justify-content: flex-end;
+}
+
+.edited-indicator {
+  font-size: 12px;
+  color: #999;
+  margin-left: 5px;
 }
 
 .message.own-message {
@@ -1011,6 +1158,12 @@ export default defineComponent({
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   font-size: 14px;
   line-height: 1.4;
+  word-break: break-word;
+}
+
+.deleted-message {
+  font-style: italic;
+  color: #999;
 }
 
 .file-attachment {
