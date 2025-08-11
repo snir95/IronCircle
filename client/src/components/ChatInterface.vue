@@ -53,7 +53,7 @@
     <div class="chat-main">
       <div v-if="currentChannel || currentPrivateChat" class="chat-header">
         <h3 v-if="currentChannel"># {{ currentChannel.name }}</h3>
-        <h3 v-if="currentPrivateChat">💬 {{ currentPrivateChat.username }}</h3>
+        <h3 v-else-if="currentPrivateChat">💬 {{ currentPrivateChat.username }}</h3>
         <p v-if="currentChannel?.description" class="channel-description">
           {{ currentChannel.description }}
         </p>
@@ -67,11 +67,11 @@
       <!-- Messages Area -->
       <div v-if="currentChannel || currentPrivateChat" class="messages-container">
         <div class="messages" ref="messagesContainer">
-          <div
-            v-for="message in messages"
-            :key="message._id"
-            :class="['message', { 'own-message': message.sender._id === currentUser?.id }]"
-          >
+                     <div
+             v-for="message in messages"
+             :key="message._id"
+             :class="['message', { 'own-message': message.sender._id === currentUser?._id }]"
+           >
             <div class="message-header">
               <span class="message-author">{{ message.sender.username }}</span>
               <span class="message-time">{{ formatTime(message.createdAt) }}</span>
@@ -167,30 +167,47 @@ export default defineComponent({
     const isUserOnline = computed(() => store.getters.isUserOnline);
     
     // Methods
-    const connectSocket = () => {
-      const token = store.getters.token;
-      if (!token) return;
+         const connectSocket = () => {
+       const token = store.getters.token;
+       console.log('Attempting to connect socket with token:', token ? 'present' : 'missing');
+       console.log('Token value:', token);
+       console.log('localStorage token:', localStorage.getItem('token'));
+       if (!token) return;
       
-      socket.value = io('http://localhost:3001');
+             socket.value = io('http://localhost:3001');
+       
+       socket.value.on('connect_error', (error) => {
+         console.error('Socket connection error:', error);
+       });
+       
+       socket.value.on('error', (error) => {
+         console.error('Socket error:', error);
+       });
       
-      socket.value.on('connect', () => {
-        console.log('Connected to server');
-        socket.value?.emit('authenticate', token);
-      });
+             socket.value.on('connect', () => {
+         console.log('Connected to server');
+         console.log('Authenticating with token:', token);
+         socket.value?.emit('authenticate', token);
+       });
       
-      socket.value.on('authenticated', (data) => {
-        if (data.success) {
-          console.log('Authenticated with server');
-          loadInitialData();
-        }
-      });
+             socket.value.on('authenticated', (data) => {
+         console.log('Authentication response:', data);
+         if (data.success) {
+           console.log('Authenticated with server');
+           loadInitialData();
+         } else {
+           console.error('Authentication failed:', data.message);
+         }
+       });
       
       socket.value.on('new_message', (message) => {
+        console.log('Received new_message:', message);
         store.dispatch('addMessage', message);
         scrollToBottom();
       });
       
       socket.value.on('private_message', (message) => {
+        console.log('Received private_message:', message);
         store.dispatch('addMessage', message);
         scrollToBottom();
       });
@@ -223,7 +240,9 @@ export default defineComponent({
     
     const selectChannel = (channel: any) => {
       store.commit('SET_CURRENT_CHANNEL', channel);
-      currentPrivateChat.value = null;
+      // Show cached messages immediately (persisted in localStorage), then refresh from server
+      const cached = (store.getters.getChannelMessages && store.getters.getChannelMessages(channel._id)) || [];
+      store.commit('SET_MESSAGES', cached);
       store.dispatch('fetchMessages', channel._id);
       socket.value?.emit('join_channel', channel._id);
       scrollToBottom();
@@ -232,7 +251,8 @@ export default defineComponent({
     const startPrivateChat = (user: any) => {
       currentPrivateChat.value = user;
       store.commit('SET_CURRENT_CHANNEL', null);
-      store.commit('SET_MESSAGES', []);
+      // Load private messages from server (could be cached similarly later)
+      store.dispatch('fetchPrivateMessages', user._id);
     };
     
     const sendMessage = () => {
@@ -242,19 +262,27 @@ export default defineComponent({
       console.log('Current channel:', currentChannel.value);
       console.log('Socket connected:', socket.value?.connected);
       
-      if (currentChannel.value) {
-        console.log('Emitting send_message to channel:', currentChannel.value._id);
-        socket.value?.emit('send_message', {
-          channelId: currentChannel.value._id,
-          content: newMessage.value
-        });
-      } else if (currentPrivateChat.value) {
-        console.log('Emitting private_message to user:', currentPrivateChat.value._id);
-        socket.value?.emit('private_message', {
-          recipientId: currentPrivateChat.value._id,
-          content: newMessage.value
-        });
-      }
+             if (currentChannel.value) {
+         console.log('Emitting send_message to channel:', currentChannel.value._id);
+         if (socket.value?.connected) {
+           socket.value.emit('send_message', {
+             channelId: currentChannel.value._id,
+             content: newMessage.value
+           });
+         } else {
+           console.error('Socket not connected! Cannot send message.');
+         }
+       } else if (currentPrivateChat.value) {
+         console.log('Emitting private_message to user:', currentPrivateChat.value._id);
+         if (socket.value?.connected) {
+           socket.value.emit('private_message', {
+             recipientId: currentPrivateChat.value._id,
+             content: newMessage.value
+           });
+         } else {
+           console.error('Socket not connected! Cannot send message.');
+         }
+       }
       
       newMessage.value = '';
     };
@@ -307,15 +335,21 @@ export default defineComponent({
       router.push('/login');
     };
     
-    // Lifecycle
-    onMounted(() => {
-      if (!store.getters.isAuthenticated) {
-        router.push('/login');
-        return;
-      }
-      
-      connectSocket();
-    });
+         // Lifecycle
+     onMounted(() => {
+       console.log('ChatInterface mounted');
+       console.log('Is authenticated:', store.getters.isAuthenticated);
+       console.log('Current user:', store.getters.currentUser);
+       
+       if (!store.getters.isAuthenticated) {
+         console.log('Not authenticated, redirecting to login');
+         router.push('/login');
+         return;
+       }
+       
+       console.log('User is authenticated, connecting socket');
+       connectSocket();
+     });
     
     // Watch for channel changes to scroll to bottom
     watch(messages, () => {
@@ -485,6 +519,17 @@ export default defineComponent({
 
 .user-item.online .user-name {
   font-weight: 500;
+}
+
+/* Offline visual state */
+.user-item:not(.online) .user-name {
+  color: #999;
+  opacity: 0.6;
+}
+
+.user-item:not(.online) .user-avatar {
+  background: #ccc;
+  opacity: 0.6;
 }
 
 .chat-main {

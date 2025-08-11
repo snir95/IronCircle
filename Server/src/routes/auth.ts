@@ -2,6 +2,11 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { User } from '../models/User.js';
 import { generateToken } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
+
+interface TokenPayload extends jwt.JwtPayload {
+  userId: string;
+}
 
 const router = express.Router();
 
@@ -101,8 +106,8 @@ router.get('/me', async (req, res) => {
       return res.status(401).json({ message: 'No token provided' });
     }
 
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as TokenPayload;
     
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) {

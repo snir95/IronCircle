@@ -6,6 +6,7 @@ import cors from 'cors';
 import { Server, Socket } from 'socket.io';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 import authRoutes from './routes/auth.js';
 import channelRoutes from './routes/channels.js';
 import userRoutes from './routes/users.js';
@@ -60,7 +61,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
   // Authenticate user
   socket.on('authenticate', async (token: string) => {
     try {
-      const jwt = require('jsonwebtoken');
+
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as any;
       const user = await User.findById(decoded.userId);
       
@@ -100,9 +101,14 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 
   // Send message to channel
   socket.on('send_message', async (data: { channelId: string; content: string; messageType?: string }) => {
-    if (!socket.userId) return;
+    console.log('Received send_message:', data);
+    if (!socket.userId) {
+      console.log('No userId, returning');
+      return;
+    }
 
     try {
+      console.log('Creating message for channel:', data.channelId);
       const message = new Message({
         content: data.content,
         sender: socket.userId,
@@ -111,6 +117,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
       });
 
       await message.save();
+      console.log('Message saved:', message._id);
       await message.populate('sender', 'username avatar');
 
       const messageData = {
@@ -122,6 +129,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         createdAt: message.createdAt
       };
 
+      console.log('Emitting new_message to channel:', data.channelId);
       io.to(`channel_${data.channelId}`).emit('new_message', messageData);
     } catch (error) {
       console.error('Error saving message:', error);

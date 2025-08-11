@@ -16,6 +16,7 @@ export default createStore({
     channels: JSON.parse(localStorage.getItem('channels') || '[]') as any[],
     currentChannel: JSON.parse(localStorage.getItem('currentChannel') || 'null') as any,
     messages: [] as any[],
+    channelMessages: JSON.parse(localStorage.getItem('channelMessages') || '{}') as Record<string, any[]>,
     users: JSON.parse(localStorage.getItem('users') || '[]') as any[],
     onlineUsers: new Set() as Set<string>,
     isAuthenticated: !!(localStorage.getItem('token')),
@@ -62,8 +63,19 @@ export default createStore({
     SET_MESSAGES(state, messages) {
       state.messages = messages;
     },
+    SET_CHANNEL_MESSAGES(state, payload: { channelId: string; messages: any[] }) {
+      state.channelMessages[payload.channelId] = payload.messages;
+      localStorage.setItem('channelMessages', JSON.stringify(state.channelMessages));
+    },
     ADD_MESSAGE(state, message) {
       state.messages.push(message);
+    },
+    ADD_CHANNEL_MESSAGE(state, payload: { channelId: string; message: any }) {
+      if (!state.channelMessages[payload.channelId]) {
+        state.channelMessages[payload.channelId] = [];
+      }
+      state.channelMessages[payload.channelId].push(payload.message);
+      localStorage.setItem('channelMessages', JSON.stringify(state.channelMessages));
     },
     SET_USERS(state, users) {
       state.users = users;
@@ -192,6 +204,7 @@ export default createStore({
         const response = await axios.get(`${API_URL}/channels/${channelId}/messages`);
         console.log('Messages response:', response.data);
         commit('SET_MESSAGES', response.data);
+        commit('SET_CHANNEL_MESSAGES', { channelId, messages: response.data });
       } catch (error) {
         console.error('Error fetching messages:', error);
       }
@@ -206,9 +219,29 @@ export default createStore({
         // Don't clear existing users on error, keep what we have in localStorage
       }
     },
+    async fetchPrivateMessages({ commit }, userId: string) {
+      try {
+        const response = await axios.get(`${API_URL}/users/${userId}/messages`);
+        commit('SET_MESSAGES', response.data);
+      } catch (error) {
+        console.error('Error fetching private messages:', error);
+      }
+    },
     
-    addMessage({ commit }, message) {
-      commit('ADD_MESSAGE', message);
+    addMessage({ commit, state }, message) {
+      console.log('Adding message to store:', message);
+      // If message belongs to a channel, also cache it by channel
+      const channelId = typeof message.channel === 'object' && message.channel?._id
+        ? message.channel._id
+        : message.channel;
+      if (channelId) {
+        commit('ADD_CHANNEL_MESSAGE', { channelId, message });
+        if (state.currentChannel && state.currentChannel._id === channelId) {
+          commit('ADD_MESSAGE', message);
+        }
+      } else {
+        commit('ADD_MESSAGE', message);
+      }
     },
     
     userOnline({ commit }, userId) {
@@ -223,9 +256,11 @@ export default createStore({
   getters: {
     isAuthenticated: state => state.isAuthenticated,
     currentUser: state => state.user,
+    token: state => state.token,
     currentChannel: state => state.currentChannel,
     channels: state => state.channels,
     messages: state => state.messages,
+    getChannelMessages: state => (channelId: string) => state.channelMessages[channelId] || [],
     users: state => state.users,
     onlineUsers: state => state.onlineUsers,
     loading: state => state.loading,
