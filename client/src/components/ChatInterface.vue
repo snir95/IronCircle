@@ -74,7 +74,7 @@
     <!-- Main Chat Area -->
     <div class="chat-main">
       <div v-if="currentChannel || currentPrivateChat" class="chat-header">
-        <h3 v-if="currentChannel"># {{ currentChannel.name }}</h3>
+        <h3 v-if="currentChannel" @click="openChannelPanel" style="cursor: pointer"># {{ currentChannel.name }}</h3>
         <h3 v-else-if="currentPrivateChat">💬 {{ currentPrivateChat.username }}</h3>
         <p v-if="currentChannel?.description" class="channel-description">
           {{ currentChannel.description }}
@@ -86,8 +86,46 @@
         <p>Select a channel or start a private conversation to begin chatting.</p>
       </div>
       
+      <!-- Channel Panel (replaces chat when open) -->
+      <div v-if="showChannelPanel && currentChannel" class="messages-container">
+        <div class="messages" style="padding: 16px;">
+          <div style="margin-bottom:12px; display:flex; gap:8px; align-items:center;">
+            <input v-model="channelMessageQuery" @input="onChannelMessageQuery" placeholder="Search messages in #{{ currentChannel.name }}" class="message-input" />
+            <button class="send-btn" @click="closeChannelPanel">Close</button>
+          </div>
+          <div v-if="isCurrentUserAdmin" style="margin-bottom:16px;">
+            <h4>Admin Tools</h4>
+            <div class="form-group">
+              <label>Name</label>
+              <input v-model="channelEdit.name" type="text" />
+            </div>
+            <div class="form-group">
+              <label>Description</label>
+              <textarea v-model="channelEdit.description"></textarea>
+            </div>
+            <div class="modal-actions">
+              <button type="button" @click="resetChannelEdit">Reset</button>
+              <button type="submit" @click="saveChannelMeta">Save</button>
+            </div>
+          </div>
+          <div>
+            <h4>Members</h4>
+            <div v-for="m in channelMembers" :key="m._id" class="user-item" style="justify-content:space-between;">
+              <div style="display:flex; gap:8px; align-items:center;">
+                <div class="user-avatar">{{ m.username.charAt(0).toUpperCase() }}</div>
+                <span class="user-name">{{ m.username }}</span>
+              </div>
+              <div v-if="isCurrentUserAdmin && m._id !== currentUser?._id" style="display:flex; gap:8px;">
+                <button class="logout-btn" @click="toggleAdmin(m)">{{ isAdmin(m) ? 'Remove admin' : 'Make admin' }}</button>
+                <button class="logout-btn" @click="removeMember(m)">Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Messages Area -->
-      <div v-if="currentChannel || currentPrivateChat" class="messages-container">
+      <div v-else-if="currentChannel || currentPrivateChat" class="messages-container">
         <div class="messages" ref="messagesContainer">
                      <div
              v-for="message in messages"
@@ -177,6 +215,11 @@ export default defineComponent({
     const currentPrivateChat = ref<any>(null);
     const typingUsers = ref<string[]>([]);
     const typingTimeout = ref<number | null>(null);
+    const showChannelPanel = ref(false);
+    const channelMessageQuery = ref('');
+    const channelMessageQueryDebounce = ref<number | null>(null);
+    const channelEdit = ref<{ name: string; description: string }>({ name: '', description: '' });
+    const channelMembers = ref<any[]>([]);
     
     const newChannel = ref({
       name: '',
@@ -192,6 +235,12 @@ export default defineComponent({
     const users = computed(() => store.getters.users);
     const publicChannelResults = computed(() => store.state.publicChannelResults);
     const isUserOnline = computed(() => store.getters.isUserOnline);
+    const isCurrentUserAdmin = computed(() => {
+      const ch: any = currentChannel.value;
+      const me = currentUser.value;
+      if (!ch || !me || !ch.admins) return false;
+      return ch.admins.some((id: any) => id === me._id || id?._id === me._id);
+    });
     
     // Methods
     const connectSocket = () => {
@@ -276,12 +325,97 @@ export default defineComponent({
     
     const selectChannel = (channel: any) => {
       store.commit('SET_CURRENT_CHANNEL', channel);
+      showChannelPanel.value = false;
       // Show cached messages immediately (persisted in localStorage), then refresh from server
       const cached = (store.getters.getChannelMessages && store.getters.getChannelMessages(channel._id)) || [];
       store.commit('SET_MESSAGES', cached);
       store.dispatch('fetchMessages', channel._id);
       socket.value?.emit('join_channel', channel._id);
       scrollToBottom();
+    };
+
+    const openChannelPanel = async () => {
+      if (!currentChannel.value) return;
+      showChannelPanel.value = true;
+      channelEdit.value = { name: (currentChannel.value as any).name, description: (currentChannel.value as any).description || '' };
+      // fetch members
+      try {
+        const res = await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/members`, {
+          headers: { Authorization: `Bearer ${store.getters.token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          channelMembers.value = data.members || [];
+        }
+      } catch {}
+    };
+
+    const closeChannelPanel = () => {
+      showChannelPanel.value = false;
+      channelMessageQuery.value = '';
+    };
+
+    const onChannelMessageQuery = () => {
+      if (channelMessageQueryDebounce.value) clearTimeout(channelMessageQueryDebounce.value);
+      channelMessageQueryDebounce.value = setTimeout(() => {
+        if (!currentChannel.value) return;
+        store.dispatch('fetchMessages', { channelId: (currentChannel.value as any)._id, q: channelMessageQuery.value.trim() });
+      }, 600) as unknown as number;
+    };
+
+    const resetChannelEdit = () => {
+      if (!currentChannel.value) return;
+      channelEdit.value = { name: (currentChannel.value as any).name, description: (currentChannel.value as any).description || '' };
+    };
+
+    const saveChannelMeta = async () => {
+      if (!currentChannel.value) return;
+      try {
+        await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${store.getters.token}`
+          },
+          body: JSON.stringify(channelEdit.value)
+        });
+        await store.dispatch('fetchChannels');
+      } catch {}
+    };
+
+    const isAdmin = (member: any) => {
+      const ch: any = currentChannel.value;
+      if (!ch || !ch.admins) return false;
+      return ch.admins.some((id: any) => id === member._id || id?._id === member._id);
+    };
+
+    const toggleAdmin = async (member: any) => {
+      if (!currentChannel.value) return;
+      const action = isAdmin(member) ? 'remove' : 'add';
+      try {
+        await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/admins`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${store.getters.token}`
+          },
+          body: JSON.stringify({ userId: member._id, action })
+        });
+        await store.dispatch('fetchChannels');
+        await openChannelPanel();
+      } catch {}
+    };
+
+    const removeMember = async (member: any) => {
+      if (!currentChannel.value) return;
+      try {
+        await fetch(`${process.env.VUE_APP_API_URL || 'http://localhost:3001/api'}/channels/${(currentChannel.value as any)._id}/members/${member._id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${store.getters.token}` }
+        });
+        await store.dispatch('fetchChannels');
+        await openChannelPanel();
+      } catch {}
     };
 
     const performChannelSearch = async () => {
@@ -469,11 +603,24 @@ export default defineComponent({
       channelSearchWrap,
       isUserOnline,
       selectChannel,
+      openChannelPanel,
+      closeChannelPanel,
       performChannelSearch,
       joinAndOpen,
       openChannelDropdown,
       closeChannelDropdown,
       onChannelSearchInput,
+      channelMessageQuery,
+      onChannelMessageQuery,
+      showChannelPanel,
+      channelEdit,
+      channelMembers,
+      isCurrentUserAdmin,
+      resetChannelEdit,
+      saveChannelMeta,
+      isAdmin,
+      toggleAdmin,
+      removeMember,
       startPrivateChat,
       sendMessage,
       handleTyping,

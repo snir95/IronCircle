@@ -240,3 +240,25 @@ router.get('/search/public', auth, async (req: AuthRequest, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Get channel members (populated) and admin ids
+router.get('/:channelId/members', auth, async (req: AuthRequest, res) => {
+  try {
+    const { channelId } = req.params;
+    const channel = await Channel.findById(channelId).populate('members', 'username avatar');
+    if (!channel) return res.status(404).json({ message: 'Channel not found' });
+
+    // Ensure requester is a member to view member list
+    if (!channel.members.some((m: any) => m._id.toString() === req.user._id.toString())) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    res.json({
+      members: channel.members,
+      admins: channel.admins?.map((id: any) => id.toString()) || []
+    });
+  } catch (error) {
+    console.error('Error fetching channel members:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
