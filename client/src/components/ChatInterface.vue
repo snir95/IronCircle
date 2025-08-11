@@ -173,6 +173,7 @@ export default defineComponent({
     const channelSearch = ref('');
     const showChannelDropdown = ref(false);
     const channelSearchWrap = ref<HTMLElement | null>(null);
+    const channelSearchDebounce = ref<number | null>(null);
     const currentPrivateChat = ref<any>(null);
     const typingUsers = ref<string[]>([]);
     const typingTimeout = ref<number | null>(null);
@@ -312,8 +313,14 @@ export default defineComponent({
     };
 
     const onChannelSearchInput = async () => {
-      await store.dispatch('searchPublicChannels', channelSearch.value.trim());
-      showChannelDropdown.value = true;
+      // Debounce API search until user stops typing
+      if (channelSearchDebounce.value) {
+        clearTimeout(channelSearchDebounce.value);
+      }
+      channelSearchDebounce.value = setTimeout(async () => {
+        await store.dispatch('searchPublicChannels', channelSearch.value.trim());
+        showChannelDropdown.value = true;
+      }, 800) as unknown as number;
     };
 
     const onClickOutside = (e: MouseEvent) => {
