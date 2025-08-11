@@ -1093,6 +1093,20 @@ export default defineComponent({
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Critical for proper flex behavior */
+}
+
+@media (max-width: 768px) {
+  .chat-main {
+    height: 100vh;
+    padding-top: 60px; /* Space for the mobile header */
+  }
+}
+
+.chat-main {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-header {
@@ -1131,6 +1145,9 @@ export default defineComponent({
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Critical for proper flex behavior */
+  position: relative;
+  overflow: hidden; 
 }
 
 .messages {
@@ -1140,6 +1157,12 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .messages {
+    padding-bottom: 100px; 
+  }
 }
 
 .message {
@@ -1336,6 +1359,19 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .message-input-container {
+    padding: 12px;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    z-index: 99;
+  }
 }
 
 .input-wrapper {
