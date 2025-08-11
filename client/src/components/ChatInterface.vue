@@ -1,7 +1,12 @@
 <template>
   <div v-if="currentUser" class="chat-container">
+    <!-- Mobile Navigation Toggle -->
+    <button class="sidebar-toggle" @click="toggleSidebar" v-show="isMobile">
+      ☰
+    </button>
+    
     <!-- Sidebar -->
-    <div class="sidebar">
+    <div :class="['sidebar', { active: showSidebar }]">
       <div class="sidebar-header">
         <h3>IronCircle</h3>
         <div class="user-info">
@@ -42,7 +47,7 @@
           <div
             v-for="channel in channels"
             :key="channel._id"
-            @click="selectChannel(channel)"
+            @click="selectChannelMobile(channel)"
             :class="['channel-item', { active: currentChannel?._id === channel._id }]"
           >
             <span class="channel-name"># {{ channel.name }}</span>
@@ -257,6 +262,8 @@ export default defineComponent({
     const selectedFile = ref<File | null>(null);
     const fileInput = ref<HTMLInputElement | null>(null);
     const showCreateChannel = ref(false);
+    const showSidebar = ref(false);
+    const isMobile = ref(window.innerWidth <= 768);
     const channelSearch = ref('');
     const showChannelDropdown = ref(false);
     const channelSearchWrap = ref<HTMLElement | null>(null);
@@ -747,12 +754,33 @@ export default defineComponent({
       scrollToBottom();
     });
 
+    const toggleSidebar = () => {
+      showSidebar.value = !showSidebar.value;
+    };
+
+    const handleResize = () => {
+      isMobile.value = window.innerWidth <= 768;
+      if (!isMobile.value) {
+        showSidebar.value = false;
+      }
+    };
+
+    // Close sidebar when selecting a channel on mobile
+    const selectChannelMobile = (channel: any) => {
+      selectChannel(channel);
+      if (isMobile.value) {
+        showSidebar.value = false;
+      }
+    };
+
     onMounted(() => {
       document.addEventListener('click', onClickOutside);
+      window.addEventListener('resize', handleResize);
     });
 
     onBeforeUnmount(() => {
       document.removeEventListener('click', onClickOutside);
+      window.removeEventListener('resize', handleResize);
       if (socket.value) {
         try { socket.value.off(); } catch {}
         try { socket.value.offAny?.(); } catch {}
@@ -777,7 +805,10 @@ export default defineComponent({
       showChannelDropdown,
       channelSearchWrap,
       isUserOnline,
-      selectChannel,
+      isMobile,
+      showSidebar,
+      toggleSidebar,
+      selectChannelMobile,
       openChannelPanel,
       closeChannelPanel,
       performChannelSearch,
@@ -828,6 +859,14 @@ export default defineComponent({
   display: flex;
   height: 100vh;
   background: #f8f9fa;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .chat-container {
+    flex-direction: column;
+  }
 }
 
 .loading-container {
@@ -845,6 +884,41 @@ export default defineComponent({
   border-right: 1px solid #e1e5e9;
   display: flex;
   flex-direction: column;
+  z-index: 100;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar.active {
+    transform: translateX(0);
+  }
+
+  .sidebar-toggle {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 101;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 24px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
 }
 
 .sidebar-header {
@@ -1086,6 +1160,26 @@ export default defineComponent({
   cursor: pointer;
 }
 
+@media (max-width: 768px) {
+  .message {
+    max-width: 85%;
+  }
+
+  .message-content {
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+
+  .message-header {
+    font-size: 12px;
+  }
+
+  .message-actions-row button {
+    padding: 6px 12px;
+    font-size: 14px;
+  }
+}
+
 .message-actions-row {
   display: flex;
   gap: 8px;
@@ -1247,6 +1341,37 @@ export default defineComponent({
 .input-wrapper {
   display: flex;
   gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .message-input-container {
+    padding: 12px;
+  }
+
+  .input-wrapper {
+    gap: 8px;
+  }
+
+  .message-input {
+    font-size: 16px;
+    padding: 10px;
+  }
+
+  .send-btn {
+    padding: 10px 16px;
+  }
+
+  .modal {
+    width: 95%;
+    padding: 20px;
+    margin: 10px;
+  }
+
+  .form-group input,
+  .form-group textarea {
+    font-size: 16px;
+    padding: 10px;
+  }
 }
 
 .message-input {
