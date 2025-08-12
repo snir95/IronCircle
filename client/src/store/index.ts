@@ -264,9 +264,12 @@ export default createStore({
         throw error;
       }
     },
-    async fetchPrivateMessages({ commit }, userId: string) {
+    async fetchPrivateMessages({ commit }, payload: { userId: string; q?: string }) {
       try {
-        const response = await axios.get(`${API_URL}/users/${userId}/messages`);
+        console.log('Fetching private messages:', payload);
+        const response = await axios.get(`${API_URL}/users/${payload.userId}/messages`, {
+          params: payload.q ? { q: payload.q } : undefined
+        });
         commit('SET_MESSAGES', response.data);
       } catch (error) {
         console.error('Error fetching private messages:', error);

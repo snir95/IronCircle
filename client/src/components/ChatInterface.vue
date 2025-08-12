@@ -79,11 +79,30 @@
     <!-- Main Chat Area -->
     <div class="chat-main">
       <div v-if="currentChannel || currentPrivateChat" class="chat-header">
-        <h3 v-if="currentChannel" @click="openChannelPanel" style="cursor: pointer"># {{ currentChannel.name }}</h3>
-        <h3 v-else-if="currentPrivateChat">💬 {{ currentPrivateChat.username }}</h3>
-        <p v-if="currentChannel?.description" class="channel-description">
-          {{ currentChannel.description }}
-        </p>
+        <div class="chat-header-content">
+          <div class="chat-header-left">
+            <h3 v-if="currentChannel" @click="openChannelPanel" style="cursor: pointer"># {{ currentChannel.name }}</h3>
+            <h3 v-else-if="currentPrivateChat">💬 {{ currentPrivateChat.username }}</h3>
+            <p v-if="currentChannel?.description" class="channel-description">
+              {{ currentChannel.description }}
+            </p>
+          </div>
+          <div class="chat-header-actions">
+            <button class="icon-button" @click="toggleSearch" title="Search messages">
+              🔍
+            </button>
+          </div>
+        </div>
+        <!-- Search Bar -->
+        <div v-if="showSearch" class="search-bar">
+          <input
+            v-model="channelMessageQuery"
+            @input="onChannelMessageQuery"
+            :placeholder="currentChannel ? 'Search messages in this channel...' : `Search messages with ${currentPrivateChat?.username}...`"
+            class="message-input"
+          />
+          <button class="icon-button" @click="toggleSearch">✕</button>
+        </div>
       </div>
       
       <div v-else class="welcome-screen">
@@ -264,6 +283,7 @@ export default defineComponent({
     const showCreateChannel = ref(false);
     const showSidebar = ref(false);
     const isMobile = ref(window.innerWidth <= 768);
+    const showSearch = ref(false);
     const channelSearch = ref('');
     const showChannelDropdown = ref(false);
     const channelSearchWrap = ref<HTMLElement | null>(null);
@@ -432,8 +452,17 @@ export default defineComponent({
     const onChannelMessageQuery = () => {
       if (channelMessageQueryDebounce.value) clearTimeout(channelMessageQueryDebounce.value);
       channelMessageQueryDebounce.value = setTimeout(() => {
-        if (!currentChannel.value) return;
-        store.dispatch('fetchMessages', { channelId: (currentChannel.value as any)._id, q: channelMessageQuery.value.trim() });
+        const query = channelMessageQuery.value.trim();
+        if (currentChannel.value) {
+          store.dispatch('fetchMessages', { channelId: currentChannel.value._id, q: query });
+        } else if (currentPrivateChat.value) {
+          console.log('Private chat search params:', {
+            userId: currentPrivateChat.value._id,
+            username: currentPrivateChat.value.username,
+            q: query
+          });
+          store.dispatch('fetchPrivateMessages', { userId: currentPrivateChat.value._id, q: query });
+        }
       }, 600) as unknown as number;
     };
 
@@ -646,7 +675,7 @@ export default defineComponent({
       currentPrivateChat.value = user;
       store.commit('SET_CURRENT_CHANNEL', null);
       // Load private messages from server (could be cached similarly later)
-      store.dispatch('fetchPrivateMessages', user._id);
+      store.dispatch('fetchPrivateMessages', { userId: user._id });
     };
     
     const sendMessage = () => {
@@ -754,6 +783,12 @@ export default defineComponent({
       scrollToBottom();
     });
 
+    // Reset search when changing channels or private chats
+    watch([currentChannel, currentPrivateChat], () => {
+      showSearch.value = false;
+      channelMessageQuery.value = '';
+    });
+
     const toggleSidebar = () => {
       showSidebar.value = !showSidebar.value;
     };
@@ -762,6 +797,19 @@ export default defineComponent({
       isMobile.value = window.innerWidth <= 768;
       if (!isMobile.value) {
         showSidebar.value = false;
+      }
+    };
+
+    const toggleSearch = () => {
+      showSearch.value = !showSearch.value;
+      if (!showSearch.value) {
+        channelMessageQuery.value = '';
+        // Reset to full chat history
+        if (currentChannel.value) {
+          store.dispatch('fetchMessages', { channelId: currentChannel.value._id });
+        } else if (currentPrivateChat.value) {
+          store.dispatch('fetchPrivateMessages', { userId: currentPrivateChat.value._id });
+        }
       }
     };
 
@@ -809,6 +857,8 @@ export default defineComponent({
       showSidebar,
       toggleSidebar,
       selectChannelMobile,
+      showSearch,
+      toggleSearch,
       openChannelPanel,
       closeChannelPanel,
       performChannelSearch,
@@ -1115,9 +1165,53 @@ export default defineComponent({
   border-bottom: 1px solid #e1e5e9;
 }
 
+.chat-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.chat-header-left {
+  flex: 1;
+}
+
 .chat-header h3 {
   margin: 0 0 5px 0;
   color: #333;
+}
+
+.chat-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-button {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.icon-button:hover {
+  background-color: #f1f3f5;
+}
+
+.search-bar {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  align-items: center;
+}
+
+.search-bar .message-input {
+  flex: 1;
+  margin: 0;
 }
 
 .channel-description {
