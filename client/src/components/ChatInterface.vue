@@ -61,7 +61,10 @@
             v-for="channel in channels"
             :key="channel._id"
             @click="selectChannelMobile(channel)"
-            :class="['channel-item', { active: currentChannel?._id === channel._id }]"
+            :class="['channel-item', { 
+              active: currentChannel?._id === channel._id,
+              'has-unread': hasUnreadMessages(channel._id)
+            }]"
           >
             <span class="channel-name"># {{ channel.name }}</span>
             <span v-if="channel.isPrivate" class="private-indicator">🔒</span>
@@ -77,7 +80,10 @@
             v-for="user in users"
             :key="user._id"
             @click="startPrivateChat(user)"
-            :class="['user-item', { online: isUserOnline(user._id) }]"
+            :class="['user-item', { 
+              online: isUserOnline(user._id),
+              'has-unread': hasUnreadMessages(user._id)
+            }]"
           >
             <div class="user-avatar">
               {{ user.username.charAt(0).toUpperCase() }}
@@ -395,21 +401,16 @@ export default defineComponent({
 
     const showNotification = (message: any) => {
       try {
-        console.log("Attempting to show notification for message:", message);
-        
         if (!("Notification" in window)) {
-          console.log("Notifications not supported");
           return;
         }
         
         if (Notification.permission !== "granted") {
-          console.log("Notification permission not granted:", Notification.permission);
           return;
         }
 
         // Don't notify if the message is from the current user
         if (message.sender._id === currentUser.value?._id) {
-          console.log("Skipping notification - own message");
           return;
         }
 
@@ -418,7 +419,6 @@ export default defineComponent({
           (currentChannel.value && currentChannel.value._id === message.channel) ||
           (currentPrivateChat.value && currentPrivateChat.value._id === message.sender._id)
         ) {
-          console.log("Skipping notification - currently viewing chat");
           return;
         }
 
@@ -456,6 +456,7 @@ export default defineComponent({
     const users = computed(() => store.getters.users);
     const publicChannelResults = computed(() => store.state.publicChannelResults);
     const isUserOnline = computed(() => store.getters.isUserOnline);
+    const hasUnreadMessages = computed(() => store.getters.hasUnreadMessages);
     const isCurrentUserAdmin = computed(() => {
       const ch: any = currentChannel.value;
       const me = currentUser.value;
@@ -489,26 +490,50 @@ export default defineComponent({
          socket.value?.emit('authenticate', token);
        });
       
-             socket.value.on('authenticated', (data) => {
-         if (data.success) {
-           console.log('Socket authenticated successfully');
-           loadInitialData();
-         } else {
-           console.error('Authentication failed:', data.message);
-         }
-       });
+                   socket.value.on('authenticated', async (data) => {
+        if (data.success) {
+          console.log('Socket authenticated successfully');
+          await loadInitialData();
+          
+          // Join all channels after loading them
+          channels.value.forEach((channel: any) => {
+            console.log('Joining channel:', channel.name);
+            socket.value?.emit('join_channel', channel._id);
+          });
+        } else {
+          console.error('Authentication failed:', data.message);
+        }
+      });
       
       // Ensure single handler registration
       socket.value.off('new_message');
       socket.value.on('new_message', (message) => {
-        // Always add the message to store if it's for the current channel
-        if (currentChannel.value && currentChannel.value._id === message.channel) {
-          store.dispatch('addMessage', message);
-          scrollToBottom();
+        const isCurrentChannel = currentChannel.value && currentChannel.value._id === message.channel;
+        const isOwnMessage = message.sender._id === currentUser.value?._id;
+
+        // Update last message timestamp for the channel
+        if (message.channel && message.createdAt) {
+          store.commit('UPDATE_LAST_MESSAGE_TIMESTAMP', {
+            chatId: message.channel,
+            timestamp: message.createdAt
+          });
         }
 
-        // Show notification if we're not in the channel where the message was sent
-        if (!currentChannel.value || currentChannel.value._id !== message.channel) {
+        // Always add to channel cache
+        store.dispatch('addMessage', message);
+
+        // Handle display and notifications
+        if (isCurrentChannel) {
+          // If we're in the channel, update current messages and scroll
+          store.commit('SET_MESSAGES', store.getters.getChannelMessages(message.channel));
+          scrollToBottom();
+        }
+        
+        // Show notification if:
+        // 1. It's not our own message AND
+        // 2. Either we're not in any channel OR we're in a different channel
+        if (!isOwnMessage && (!currentChannel.value || currentChannel.value._id !== message.channel)) {
+          store.commit('ADD_UNREAD_CHANNEL', message.channel);
           showNotification(message);
         }
       });
@@ -527,10 +552,28 @@ export default defineComponent({
       socket.value.on('private_message', (message) => {
         const isCurrentChat = currentPrivateChat.value && 
           (message.recipient === currentPrivateChat.value._id || message.sender._id === currentPrivateChat.value._id);
-        if (isCurrentChat) {
-          store.dispatch('addMessage', message);
+        const isOwnMessage = message.sender._id === currentUser.value?._id;
+        const chatId = isOwnMessage ? message.recipient : message.sender._id;
+
+        // Update last message timestamp
+        if (message.createdAt) {
+          store.commit('UPDATE_LAST_MESSAGE_TIMESTAMP', {
+            chatId,
+            timestamp: message.createdAt
+          });
+        }
+
+        // Always add to private messages cache
+        store.dispatch('addMessage', message);
+
+        // Handle display and notifications
+        if (isCurrentChat && !currentChannel.value) {
+          // Only update display if we're in the private chat (not in a channel)
+          store.commit('SET_MESSAGES', store.getters.getPrivateMessages(chatId));
           scrollToBottom();
-        } else {
+        } else if (!isOwnMessage) {
+          // Only show notification and mark unread if it's not our message
+          store.commit('ADD_UNREAD_CHANNEL', chatId);
           showNotification(message);
         }
       });
@@ -553,14 +596,36 @@ export default defineComponent({
       ]);
     };
     
-    const selectChannel = (channel: any) => {
+    const selectChannel = async (channel: any) => {
       store.commit('SET_CURRENT_CHANNEL', channel);
+      store.commit('CLEAR_UNREAD_CHANNEL', channel._id);
       showChannelPanel.value = false;
-      // Show cached messages immediately (persisted in localStorage), then refresh from server
-      const cached = (store.getters.getChannelMessages && store.getters.getChannelMessages(channel._id)) || [];
-      store.commit('SET_MESSAGES', cached);
-      store.dispatch('fetchMessages', channel._id);
+
+      // Join channel first to ensure we don't miss any messages
       socket.value?.emit('join_channel', channel._id);
+
+      // Check if we need to fetch messages
+      const isChatLoaded = store.getters.isChatLoaded(channel._id);
+      const lastTimestamp = store.getters.getLastMessageTimestamp(channel._id);
+
+      if (!isChatLoaded) {
+        // First time loading this chat
+        await store.dispatch('fetchMessages', { channelId: channel._id });
+        store.commit('MARK_CHAT_LOADED', channel._id);
+        if (messages.value.length > 0) {
+          store.commit('UPDATE_LAST_MESSAGE_TIMESTAMP', {
+            chatId: channel._id,
+            timestamp: messages.value[messages.value.length - 1].createdAt
+          });
+        }
+      } else if (lastTimestamp) {
+        // Check for new messages since last load
+        await store.dispatch('fetchMessages', {
+          channelId: channel._id,
+          since: lastTimestamp
+        });
+      }
+
       scrollToBottom();
     };
 
@@ -806,11 +871,39 @@ export default defineComponent({
       }
     };
     
-    const startPrivateChat = (user: any) => {
+    const startPrivateChat = async (user: any) => {
       currentPrivateChat.value = user;
       store.commit('SET_CURRENT_CHANNEL', null);
-      // Load private messages from server (could be cached similarly later)
-      store.dispatch('fetchPrivateMessages', { userId: user._id });
+      store.commit('CLEAR_UNREAD_CHANNEL', user._id);
+
+      // Show cached messages immediately
+      const cachedMessages = store.getters.getPrivateMessages(user._id);
+      if (cachedMessages.length > 0) {
+        store.commit('SET_MESSAGES', cachedMessages);
+      }
+
+      const isChatLoaded = store.getters.isChatLoaded(user._id);
+      const lastTimestamp = store.getters.getLastMessageTimestamp(user._id);
+
+      if (!isChatLoaded) {
+        // First time loading this chat
+        await store.dispatch('fetchPrivateMessages', { userId: user._id });
+        store.commit('MARK_CHAT_LOADED', user._id);
+        if (messages.value.length > 0) {
+          store.commit('UPDATE_LAST_MESSAGE_TIMESTAMP', {
+            chatId: user._id,
+            timestamp: messages.value[messages.value.length - 1].createdAt
+          });
+        }
+      } else if (lastTimestamp) {
+        // Check for new messages since last load
+        await store.dispatch('fetchPrivateMessages', {
+          userId: user._id,
+          since: lastTimestamp
+        });
+      }
+      
+      scrollToBottom();
     };
     
     const sendMessage = () => {
@@ -915,6 +1008,16 @@ export default defineComponent({
     // Watch for channel changes to scroll to bottom
     watch(messages, () => {
       scrollToBottom();
+    });
+
+    // Watch for channel list changes to join new channels
+    watch(channels, (newChannels) => {
+      newChannels.forEach((channel: any) => {
+        if (socket.value) {
+          console.log('Joining channel after update:', channel.name);
+          socket.value.emit('join_channel', channel._id);
+        }
+      });
     });
 
     // Reset search when changing channels or private chats
@@ -1035,7 +1138,8 @@ export default defineComponent({
       toggleTheme,
       notificationStatus,
       getNotificationButtonTitle,
-      handleNotificationClick
+      handleNotificationClick,
+      hasUnreadMessages
     };
   }
 });
@@ -1316,9 +1420,25 @@ export default defineComponent({
 
 
 
+.channel-indicators {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .private-indicator {
   font-size: 12px;
   color: #667eea;
+}
+
+.channel-item.has-unread {
+  border-left: 3px solid #10b981;
+  padding-left: 9px; /* 12px - 3px border */
+}
+
+.user-item.has-unread {
+  border-left: 3px solid #10b981;
+  padding-left: 9px; /* 12px - 3px border */
 }
 
 .user-avatar {
@@ -2016,3 +2136,4 @@ export default defineComponent({
   justify-content: center;
 }
 </style>
+

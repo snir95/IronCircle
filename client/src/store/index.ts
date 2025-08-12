@@ -17,19 +17,50 @@ export default createStore({
     currentChannel: JSON.parse(localStorage.getItem('currentChannel') || 'null') as any,
     messages: [] as any[],
     channelMessages: JSON.parse(localStorage.getItem('channelMessages') || '{}') as Record<string, any[]>,
+    privateMessages: JSON.parse(localStorage.getItem('privateMessages') || '{}') as Record<string, any[]>,
     users: JSON.parse(localStorage.getItem('users') || '[]') as any[],
     publicChannelResults: [] as any[],
     onlineUsers: new Set() as Set<string>,
     isAuthenticated: !!(localStorage.getItem('token')),
     loading: false,
     error: null as string | null,
-    isDarkMode: localStorage.getItem('isDarkMode') === 'true'
+    isDarkMode: localStorage.getItem('isDarkMode') === 'true',
+    unreadChannels: new Set(),
+    // Track which channels/chats we've loaded messages for
+    loadedChats: new Set(),
+    // Track last message timestamp per chat for efficient updates
+    lastMessageTimestamps: {} as Record<string, string>
   },
   
   mutations: {
     TOGGLE_THEME(state) {
       state.isDarkMode = !state.isDarkMode;
       localStorage.setItem('isDarkMode', state.isDarkMode.toString());
+    },
+    ADD_UNREAD_CHANNEL(state, channelId: string) {
+      state.unreadChannels.add(channelId);
+      // Force reactivity update
+      state.unreadChannels = new Set(state.unreadChannels);
+    },
+    CLEAR_UNREAD_CHANNEL(state, channelId: string) {
+      state.unreadChannels.delete(channelId);
+      // Force reactivity update
+      state.unreadChannels = new Set(state.unreadChannels);
+    },
+    MARK_CHAT_LOADED(state, chatId: string) {
+      state.loadedChats.add(chatId);
+      state.loadedChats = new Set(state.loadedChats);
+    },
+    UPDATE_LAST_MESSAGE_TIMESTAMP(state, { chatId, timestamp }: { chatId: string; timestamp: string }) {
+      state.lastMessageTimestamps[chatId] = timestamp;
+      // Force reactivity
+      state.lastMessageTimestamps = { ...state.lastMessageTimestamps };
+    },
+    CLEAR_CHAT_LOADED(state, chatId: string) {
+      state.loadedChats.delete(chatId);
+      state.loadedChats = new Set(state.loadedChats);
+      delete state.lastMessageTimestamps[chatId];
+      state.lastMessageTimestamps = { ...state.lastMessageTimestamps };
     },
     SET_USER(state, user) {
       state.user = user;
@@ -79,6 +110,10 @@ export default createStore({
     SET_CHANNEL_MESSAGES(state, payload: { channelId: string; messages: any[] }) {
       state.channelMessages[payload.channelId] = payload.messages;
       localStorage.setItem('channelMessages', JSON.stringify(state.channelMessages));
+    },
+    SET_PRIVATE_MESSAGES(state, payload: { userId: string; messages: any[] }) {
+      state.privateMessages[payload.userId] = payload.messages;
+      localStorage.setItem('privateMessages', JSON.stringify(state.privateMessages));
     },
     ADD_MESSAGE(state, message) {
       if (!message) return;
@@ -193,23 +228,55 @@ export default createStore({
       }
     },
     
-    logout({ commit }) {
+    logout({ commit, state }) {
       commit('SET_USER', null);
       commit('SET_TOKEN', null);
       commit('SET_CHANNELS', []);
       commit('SET_MESSAGES', []);
       commit('SET_CURRENT_CHANNEL', null);
       commit('SET_USERS', []);
+      
+      // Clear all channel and private message caches
+      for (const channelId of Object.keys(state.channelMessages)) {
+        commit('CLEAR_CHAT_LOADED', channelId);
+      }
+      for (const userId of Object.keys(state.privateMessages)) {
+        commit('CLEAR_CHAT_LOADED', userId);
+      }
+      
       // Clear localStorage
       localStorage.removeItem('channels');
       localStorage.removeItem('currentChannel');
       localStorage.removeItem('users');
+      localStorage.removeItem('channelMessages');
+      localStorage.removeItem('privateMessages');
     },
     
-    async fetchChannels({ commit }) {
+    async fetchChannels({ commit, dispatch }) {
       try {
         const response = await axios.get(`${API_URL}/channels`);
         commit('SET_CHANNELS', response.data);
+        
+        // Initialize all channels by marking them as loaded and fetching their messages
+        for (const channel of response.data) {
+          if (!channel._id) continue;
+          
+          // Fetch initial messages for each channel
+          const messagesResponse = await axios.get(`${API_URL}/channels/${channel._id}/messages`);
+          commit('SET_CHANNEL_MESSAGES', { 
+            channelId: channel._id, 
+            messages: messagesResponse.data 
+          });
+          
+          // Mark channel as loaded and update timestamp if there are messages
+          commit('MARK_CHAT_LOADED', channel._id);
+          if (messagesResponse.data.length > 0) {
+            commit('UPDATE_LAST_MESSAGE_TIMESTAMP', {
+              chatId: channel._id,
+              timestamp: messagesResponse.data[messagesResponse.data.length - 1].createdAt
+            });
+          }
+        }
       } catch (error: any) {
         console.error('Error fetching channels:', error);
         // Don't clear existing channels on error, keep what we have in localStorage
@@ -269,13 +336,36 @@ export default createStore({
         throw error;
       }
     },
-    async fetchPrivateMessages({ commit }, payload: { userId: string; q?: string }) {
+    async fetchPrivateMessages({ commit, state }, payload: { userId: string; q?: string; since?: string }) {
       try {
         console.log('Fetching private messages:', payload);
-        const response = await axios.get(`${API_URL}/users/${payload.userId}/messages`, {
-          params: payload.q ? { q: payload.q } : undefined
-        });
-        commit('SET_MESSAGES', response.data);
+        const params: any = {};
+        if (payload.q) params.q = payload.q;
+        if (payload.since) params.since = payload.since;
+
+        const response = await axios.get(`${API_URL}/users/${payload.userId}/messages`, { params });
+        
+        if (payload.q) {
+          // For search results, just update current messages
+          commit('SET_MESSAGES', response.data);
+        } else {
+          // For regular fetch, update both current and cached messages
+          const existingMessages = state.privateMessages[payload.userId] || [];
+          const newMessages = payload.since
+            ? [...existingMessages, ...response.data]
+            : response.data;
+          
+          // Deduplicate messages
+          const seen = new Set();
+          const deduped = newMessages.filter((m: any) => {
+            if (seen.has(m._id)) return false;
+            seen.add(m._id);
+            return true;
+          });
+          
+          commit('SET_MESSAGES', deduped);
+          commit('SET_PRIVATE_MESSAGES', { userId: payload.userId, messages: deduped });
+        }
       } catch (error) {
         console.error('Error fetching private messages:', error);
       }
@@ -283,17 +373,26 @@ export default createStore({
     
     addMessage({ commit, state }, message) {
       console.log('Adding message to store:', message);
-      // If message belongs to a channel, also cache it by channel
+      
+      // Handle channel messages
       const channelId = typeof message.channel === 'object' && message.channel?._id
         ? message.channel._id
         : message.channel;
+      
       if (channelId) {
+        // Channel message - always add to cache
         commit('ADD_CHANNEL_MESSAGE', { channelId, message });
-        if (state.currentChannel && state.currentChannel._id === channelId) {
-          commit('ADD_MESSAGE', message);
-        }
       } else {
-        commit('ADD_MESSAGE', message);
+        // Private message
+        const isOwnMessage = message.sender._id === state.user?._id;
+        const userId = isOwnMessage ? message.recipient : message.sender._id;
+        
+        // Add to private messages cache
+        const existingMessages = state.privateMessages[userId] || [];
+        if (!existingMessages.some(m => m._id === message._id)) {
+          const updatedMessages = [...existingMessages, message];
+          commit('SET_PRIVATE_MESSAGES', { userId, messages: updatedMessages });
+        }
       }
     },
     
@@ -333,11 +432,15 @@ export default createStore({
   getters: {
     isAuthenticated: state => state.isAuthenticated,
     currentUser: state => state.user,
+    hasUnreadMessages: state => (channelId: string) => state.unreadChannels.has(channelId),
+    isChatLoaded: state => (chatId: string) => state.loadedChats.has(chatId),
+    getLastMessageTimestamp: state => (chatId: string) => state.lastMessageTimestamps[chatId],
     token: state => state.token,
     currentChannel: state => state.currentChannel,
     channels: state => state.channels,
     messages: state => state.messages,
     getChannelMessages: state => (channelId: string) => state.channelMessages[channelId] || [],
+    getPrivateMessages: state => (userId: string) => state.privateMessages[userId] || [],
     users: state => state.users,
     onlineUsers: state => state.onlineUsers,
     loading: state => state.loading,
