@@ -86,7 +86,7 @@
       <div v-if="currentChannel || currentPrivateChat" class="chat-header">
         <div class="chat-header-content">
           <div class="chat-header-left">
-            <h3 v-if="currentChannel" @click="openChannelPanel" style="cursor: pointer"># {{ currentChannel.name }}</h3>
+            <h3 v-if="currentChannel" @click="openChannelPanel" style="cursor: pointer">{{ currentChannel.name }}</h3>
             <h3 v-else-if="currentPrivateChat">💬 {{ currentPrivateChat.username }}</h3>
             <p v-if="currentChannel?.description" class="channel-description">
               {{ currentChannel.description }}
@@ -245,10 +245,10 @@
             <label>Description</label>
             <textarea v-model="newChannel.description" placeholder="Enter channel description"></textarea>
           </div>
-          <div class="form-group">
-            <label>
+          <div class="form-group checkbox-group">
+            <label class="checkbox-label">
               <input v-model="newChannel.isPrivate" type="checkbox" />
-              Private Channel
+              <span>Private Channel</span>
             </label>
           </div>
           <div class="modal-actions">
@@ -1119,34 +1119,38 @@ export default defineComponent({
 
 .public-channel-dropdown {
   position: relative;
-  background: #fff;
-  border: 1px solid #e1e5e9;
+  background: v-bind('isDarkMode ? "#1f2937" : "#fff"');
+  border: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
   border-radius: 6px;
   margin-top: 6px;
   max-height: 200px;
   overflow-y: auto;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 10px v-bind('isDarkMode ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.08)"');
 }
 
 .channel-item.public-result {
-  background: #f7fbff;
-  border: 1px dashed #bcdcff;
+  background: v-bind('isDarkMode ? "#2d3748" : "#f7fbff"');
+  border: 1px dashed v-bind('isDarkMode ? "#4a5568" : "#bcdcff"');
 }
 
 .channel-item.public-result:hover {
-  background: #eef7ff;
+  background: v-bind('isDarkMode ? "#374151" : "#eef7ff"');
 }
 
 .join-indicator {
   font-size: 12px;
-  color: #1e88e5;
+  color: v-bind('isDarkMode ? "#60a5fa" : "#1e88e5"');
   margin-left: auto;
 }
 
 .public-empty {
   padding: 8px 12px;
-  color: #777;
+  color: v-bind('isDarkMode ? "#94a3b8" : "#777"');
   font-size: 13px;
+}
+
+.channel-search {
+  margin-bottom: 16px;
 }
 
 .channel-name {
@@ -1157,16 +1161,7 @@ export default defineComponent({
   gap: 6px;
 }
 
-.channel-item:not(.active) .channel-name::before {
-  content: "#";
-  opacity: 0.5;
-  font-weight: normal;
-}
 
-.channel-item.active .channel-name::before {
-  content: "#";
-  color: #667eea;
-}
 
 .private-indicator {
   font-size: 12px;
@@ -1266,8 +1261,8 @@ export default defineComponent({
 }
 
 .icon-button {
-  background: #f8f9fa;
-  border: 1px solid #e1e5e9;
+  background: v-bind('isDarkMode ? "#2d3748" : "#f8f9fa"');
+  border: 1px solid v-bind('isDarkMode ? "#4a5568" : "#e1e5e9"');
   font-size: 18px;
   cursor: pointer;
   padding: 8px;
@@ -1276,7 +1271,7 @@ export default defineComponent({
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
-  color: #4b5563;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#4b5563"');
 }
 
 .icon-button:hover {
@@ -1665,19 +1660,19 @@ export default defineComponent({
 }
 
 .attach-btn {
-  background: #f9fafb;
-  border: 2px solid #e5e7eb;
+  background: v-bind('isDarkMode ? "#2d3748" : "#f9fafb"');
+  border: 2px solid v-bind('isDarkMode ? "#4a5568" : "#e5e7eb"');
   font-size: 20px;
   cursor: pointer;
   padding: 10px;
   border-radius: 50%;
-  width: 44px;
+  aspect-ratio: 1;
   height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
-  color: #4b5563;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#4b5563"');
 }
 
 .attach-btn:hover {
@@ -1774,16 +1769,17 @@ export default defineComponent({
 }
 
 .modal {
-  background: white;
+  background: v-bind('isDarkMode ? "#1a1f2c" : "white"');
   padding: 30px;
   border-radius: 12px;
   width: 90%;
   max-width: 400px;
+  border: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
 }
 
 .modal h3 {
   margin: 0 0 20px 0;
-  color: #333;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 .form-group {
@@ -1794,22 +1790,46 @@ export default defineComponent({
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: #333;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
+}
+
+.checkbox-group label {
+  margin-bottom: 0;
+}
+
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.checkbox-label span {
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 .form-group input,
 .form-group textarea {
   width: 100%;
   padding: 12px;
-  border: 2px solid #e1e5e9;
+  border: 2px solid v-bind('isDarkMode ? "#4a5568" : "#e1e5e9"');
   border-radius: 8px;
   font-size: 14px;
+  background: v-bind('isDarkMode ? "#2d3748" : "white"');
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: #667eea;
+  background: v-bind('isDarkMode ? "#374151" : "white"');
 }
 
 .form-group textarea {
@@ -1831,9 +1851,9 @@ export default defineComponent({
 }
 
 .modal-actions button[type="button"] {
-  background: #e1e5e9;
+  background: v-bind('isDarkMode ? "#4a5568" : "#e1e5e9"');
   border: none;
-  color: #333;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 .modal-actions button[type="submit"] {
@@ -1844,8 +1864,8 @@ export default defineComponent({
 
 .channel-panel-footer {
   padding: 16px;
-  background: white;
-  border-top: 1px solid #e1e5e9;
+  background: v-bind('isDarkMode ? "#1a1f2c" : "white"');
+  border-top: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
   display: flex;
   justify-content: center;
 }
