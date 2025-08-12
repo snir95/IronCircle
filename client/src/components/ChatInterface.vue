@@ -15,6 +15,14 @@
             <button @click="toggleTheme" class="theme-btn" :title="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
               {{ isDarkMode ? '🌞' : '🌙' }}
             </button>
+            <button 
+              @click="handleNotificationClick" 
+              class="notification-btn" 
+              :class="{ 'notification-disabled': notificationStatus === 'denied' }"
+              :title="getNotificationButtonTitle"
+            >
+              {{ notificationStatus === 'granted' ? '🔔' : '🔕' }}
+            </button>
             <button @click="logout" class="logout-btn">Logout</button>
           </div>
         </div>
@@ -186,11 +194,6 @@
           </div>
         </div>
         
-        <!-- Typing Indicator -->
-        <div v-if="typingUsers.length > 0" class="typing-indicator">
-          {{ typingUsers.join(', ') }} {{ typingUsers.length === 1 ? 'is' : 'are' }} typing...
-        </div>
-        
         <!-- Message Input -->
         <div class="message-input-container">
           <div v-if="selectedFile" class="file-staging">
@@ -201,7 +204,7 @@
             <input
               v-model="newMessage"
               @keyup.enter="sendMessage"
-              @input="handleTyping"
+
               placeholder="Type a message..."
               class="message-input"
               :disabled="!currentChannel && !currentPrivateChat"
@@ -293,8 +296,6 @@ export default defineComponent({
     const channelSearchWrap = ref<HTMLElement | null>(null);
     const channelSearchDebounce = ref<number | null>(null);
     const currentPrivateChat = ref<any>(null);
-    const typingUsers = ref<string[]>([]);
-    const typingTimeout = ref<number | null>(null);
     const showChannelPanel = ref(false);
     const channelMessageQuery = ref('');
     const channelMessageQueryDebounce = ref<number | null>(null);
@@ -315,9 +316,140 @@ export default defineComponent({
     const currentUser = computed(() => store.getters.currentUser);
     const channels = computed(() => store.getters.channels);
     const isDarkMode = computed(() => store.state.isDarkMode);
+    const notificationStatus = ref(Notification?.permission || 'default');
+    
+    const getNotificationButtonTitle = computed(() => {
+      switch (notificationStatus.value) {
+        case 'granted':
+          return 'Notifications enabled';
+        case 'denied':
+          return 'Notifications disabled (blocked) - Enable them in your browser settings';
+        default:
+          return 'Click to enable notifications';
+      }
+    });
+
+    const handleNotificationClick = async () => {
+      if (!("Notification" in window)) {
+        toast.error("Your browser doesn't support notifications");
+        return;
+      }
+
+      if (notificationStatus.value === 'denied') {
+        toast.info(
+          "You've blocked notifications. To enable them, click the lock/info icon in your address bar and allow notifications.",
+          { timeout: 8000 }
+        );
+        return;
+      }
+
+      const result = await requestNotificationPermission();
+      notificationStatus.value = Notification.permission;
+      
+      if (!result) {
+        toast.error("Couldn't enable notifications. Try allowing them in your browser settings.");
+      }
+    };
 
     const toggleTheme = () => {
       store.commit('TOGGLE_THEME');
+    };
+
+    const requestNotificationPermission = async () => {
+      try {
+        if (!("Notification" in window)) {
+          console.log("This browser does not support notifications");
+          return false;
+        }
+        
+        if (Notification.permission === "granted") {
+          console.log("Notification permission already granted");
+          return true;
+        }
+        
+        if (Notification.permission === "denied") {
+          console.log("Notification permission previously denied");
+          return false;
+        }
+
+        console.log("Requesting notification permission...");
+        const permission = await Notification.requestPermission();
+        console.log("Permission response:", permission);
+        
+        if (permission === "granted") {
+          // Show a test notification to ensure everything works
+          new Notification("Notifications Enabled", {
+            body: "You will now receive notifications for new messages.",
+            icon: '/favicon.ico'
+          });
+          return true;
+        } else {
+          console.log("Notification permission denied");
+          return false;
+        }
+      } catch (error) {
+        console.error("Error requesting notification permission:", error);
+        return false;
+      }
+    };
+
+    const showNotification = (message: any) => {
+      try {
+        console.log("Attempting to show notification for message:", message);
+        
+        if (!("Notification" in window)) {
+          console.log("Notifications not supported");
+          return;
+        }
+        
+        if (Notification.permission !== "granted") {
+          console.log("Notification permission not granted:", Notification.permission);
+          return;
+        }
+
+        // Don't notify if the message is from the current user
+        if (message.sender._id === currentUser.value?._id) {
+          console.log("Skipping notification - own message");
+          return;
+        }
+
+        // Don't notify if we're already in the relevant chat
+        if (
+          (currentChannel.value && currentChannel.value._id === message.channel) ||
+          (currentPrivateChat.value && currentPrivateChat.value._id === message.sender._id)
+        ) {
+          console.log("Skipping notification - currently viewing chat");
+          return;
+        }
+
+        // Find channel name if it's a channel message
+        let channelName = 'channel';
+        if (message.channel) {
+          const channel = channels.value.find((c: any) => c._id === message.channel);
+          if (channel) {
+            channelName = channel.name;
+          }
+        }
+
+        const title = message.channel 
+          ? `New message in ${channelName}`
+          : `New message from ${message.sender.username}`;
+
+        const body = message.content 
+          ? message.content.substring(0, 50) + (message.content.length > 50 ? '...' : '')
+          : message.fileData ? '📎 Attachment' : 'New message';
+
+        console.log("Creating notification:", { title, body });
+        
+        new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          tag: message._id, // Prevents duplicate notifications
+          requireInteraction: true // Keep notification until user interacts with it
+        });
+      } catch (error) {
+        console.error("Error showing notification:", error);
+      }
     };
     const currentChannel = computed(() => store.getters.currentChannel);
     const messages = computed(() => store.getters.messages);
@@ -330,8 +462,8 @@ export default defineComponent({
       if (!ch || !me || !ch.admins) return false;
       return ch.admins.some((id: any) => id === me._id || id?._id === me._id);
     });
-    
-    // Methods
+
+        // Methods
     const connectSocket = () => {
       // Cleanup any existing socket to avoid duplicate listeners
       if (socket.value) {
@@ -369,12 +501,15 @@ export default defineComponent({
       // Ensure single handler registration
       socket.value.off('new_message');
       socket.value.on('new_message', (message) => {
-        if (
-          (currentChannel.value && currentChannel.value._id === message.channel) ||
-          (currentPrivateChat.value && currentPrivateChat.value._id === message.sender._id)
-        ) {
+        // Always add the message to store if it's for the current channel
+        if (currentChannel.value && currentChannel.value._id === message.channel) {
           store.dispatch('addMessage', message);
           scrollToBottom();
+        }
+
+        // Show notification if we're not in the channel where the message was sent
+        if (!currentChannel.value || currentChannel.value._id !== message.channel) {
+          showNotification(message);
         }
       });
       
@@ -390,25 +525,17 @@ export default defineComponent({
 
       socket.value.off('private_message');
       socket.value.on('private_message', (message) => {
-        if (
-          (currentPrivateChat.value &&
-            (message.recipient === currentPrivateChat.value._id || message.sender._id === currentPrivateChat.value._id)
-          )
-        ) {
+        const isCurrentChat = currentPrivateChat.value && 
+          (message.recipient === currentPrivateChat.value._id || message.sender._id === currentPrivateChat.value._id);
+        if (isCurrentChat) {
           store.dispatch('addMessage', message);
           scrollToBottom();
+        } else {
+          showNotification(message);
         }
       });
       
-      socket.value.on('user_typing', (data) => {
-        if (data.isTyping) {
-          if (!typingUsers.value.includes(data.username)) {
-            typingUsers.value.push(data.username);
-          }
-        } else {
-          typingUsers.value = typingUsers.value.filter(user => user !== data.username);
-        }
-      });
+
       
       socket.value.on('user_online', (data) => {
         store.dispatch('userOnline', data.userId);
@@ -727,25 +854,7 @@ export default defineComponent({
       }
     };
     
-    const handleTyping = () => {
-      if (currentChannel.value) {
-        socket.value?.emit('typing', {
-          channelId: currentChannel.value._id,
-          isTyping: true
-        });
-        
-        if (typingTimeout.value) {
-          clearTimeout(typingTimeout.value);
-        }
-        
-        typingTimeout.value = setTimeout(() => {
-          socket.value?.emit('typing', {
-            channelId: currentChannel.value._id,
-            isTyping: false
-          });
-        }, 1000);
-      }
-    };
+
     
     const createChannel = async () => {
       try {
@@ -776,14 +885,31 @@ export default defineComponent({
     };
     
          // Lifecycle
-     onMounted(async () => {
-       if (!store.getters.isAuthenticated) {
-         router.push('/login');
-         return;
-       }
-       // Fetch fresh user data to prevent race conditions
-       await store.dispatch('getCurrentUser');
-       connectSocket();
+         onMounted(async () => {
+      if (!store.getters.isAuthenticated) {
+        router.push('/login');
+        return;
+      }
+      // Fetch fresh user data to prevent race conditions
+      await store.dispatch('getCurrentUser');
+      
+      // Check initial notification status
+      if ("Notification" in window) {
+        notificationStatus.value = Notification.permission;
+        // Watch for permission changes
+        try {
+          navigator.permissions?.query({ name: 'notifications' })
+            .then(permissionStatus => {
+              permissionStatus.onchange = () => {
+                notificationStatus.value = Notification.permission;
+              };
+            });
+        } catch (error) {
+          console.log("Couldn't watch notification permission changes:", error);
+        }
+      }
+      
+      connectSocket();
      });
     
     // Watch for channel changes to scroll to bottom
@@ -848,7 +974,6 @@ export default defineComponent({
       newMessage,
       showCreateChannel,
       currentPrivateChat,
-      typingUsers,
       newChannel,
       messagesContainer,
       currentUser,
@@ -903,12 +1028,14 @@ export default defineComponent({
       removeSelectedFile,
       startPrivateChat,
       sendMessage,
-      handleTyping,
       createChannel,
       formatTime,
       logout,
       isDarkMode,
-      toggleTheme
+      toggleTheme,
+      notificationStatus,
+      getNotificationButtonTitle,
+      handleNotificationClick
     };
   }
 });
@@ -1027,6 +1154,32 @@ export default defineComponent({
 .theme-btn:hover {
   background: v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)"');
   transform: scale(1.1);
+}
+
+.notification-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-btn:hover {
+  background: v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)"');
+  transform: scale(1.1);
+}
+
+.notification-btn.notification-disabled {
+  opacity: 0.5;
+}
+
+.notification-btn.notification-disabled:hover {
+  background: v-bind('isDarkMode ? "rgba(255,0,0,0.1)" : "rgba(255,0,0,0.05)"');
 }
 
 .logout-btn {
@@ -1574,13 +1727,6 @@ export default defineComponent({
   background: rgba(255, 255, 255, 0.3);
 }
 
-.typing-indicator {
-  padding: 10px 20px;
-  color: #666;
-  font-size: 12px;
-  font-style: italic;
-}
-
 .message-input-container {
   padding: 20px 24px;
   background: v-bind('isDarkMode ? "#1a1f2c" : "white"');
@@ -1599,7 +1745,7 @@ export default defineComponent({
     bottom: 0;
     left: 0;
     right: 0;
-    background: white;
+    background: v-bind('isDarkMode ? "#1a1f2c" : "white"');
     z-index: 99;
   }
 }
