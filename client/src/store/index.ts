@@ -255,10 +255,18 @@ export default createStore({
     async fetchChannels({ commit, dispatch }) {
       try {
         const response = await axios.get(`${API_URL}/channels`);
-        commit('SET_CHANNELS', response.data);
+        const { channels, onlineUsers } = response.data;
+        
+        // Set channels
+        commit('SET_CHANNELS', channels);
+        
+        // Update online users
+        onlineUsers.forEach((userId: string) => {
+          commit('ADD_ONLINE_USER', userId);
+        });
         
         // Initialize all channels by marking them as loaded and fetching their messages
-        for (const channel of response.data) {
+        for (const channel of channels) {
           if (!channel._id) continue;
           
           // Fetch initial messages for each channel

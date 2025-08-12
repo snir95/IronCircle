@@ -13,14 +13,20 @@ const router = express.Router();
 const isAdmin = (channel: any, userId: any) =>
   channel.admins?.some((id: any) => id.toString() === userId.toString());
 
-// Get all channels the user is a member of
+// Get all channels the user is a member of and online users
 router.get('/', auth, async (req: AuthRequest, res) => {
   try {
-    const channels = await Channel.find({
-      members: req.user._id
-    }).populate('createdBy', 'username');
+    const [channels, onlineUsers] = await Promise.all([
+      Channel.find({
+        members: req.user._id
+      }).populate('createdBy', 'username'),
+      User.find({ isOnline: true }, 'username isOnline')
+    ]);
     
-    res.json(channels);
+    res.json({
+      channels,
+      onlineUsers: onlineUsers.map(user => (user as any)._id.toString())
+    });
   } catch (error) {
     console.error('Error fetching channels:', error);
     res.status(500).json({ message: 'Server error' });

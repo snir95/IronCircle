@@ -52,8 +52,8 @@ app.get('/', (req: Request, res: Response) => {
   res.send('<h1>Chat Server is running (TypeScript)</h1>');
 });
 
-// Store connected users
-const connectedUsers = new Map();
+// Store connected users and their socket IDs
+const connectedUsers = new Map<string, Set<string>>();
 
 io.on('connection', (socket: AuthenticatedSocket) => {
   // Authenticate user
@@ -64,9 +64,18 @@ io.on('connection', (socket: AuthenticatedSocket) => {
       const user = await User.findById(decoded.userId);
       
       if (user) {
-        socket.userId = (user as any)._id.toString();
+        const userId = (user as any)._id.toString();
+        socket.userId = userId;
         socket.username = user.username;
-        connectedUsers.set(socket.userId, socket.id);
+        
+        // Add socket ID to user's connected sockets
+        if (!connectedUsers.has(userId)) {
+          connectedUsers.set(userId, new Set());
+        }
+        const userSockets = connectedUsers.get(userId);
+        if (userSockets && socket.id) {
+          userSockets.add(socket.id);
+        }
         
         // Update user online status
         user.isOnline = true;
@@ -190,10 +199,12 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         createdAt: message.createdAt
       };
 
-      // Send to recipient if online
-      const recipientSocketId = connectedUsers.get(data.recipientId);
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('private_message', messageData);
+      // Send to all recipient's sockets if online
+      const recipientSockets = connectedUsers.get(data.recipientId);
+      if (recipientSockets) {
+        recipientSockets.forEach(socketId => {
+          io.to(socketId).emit('private_message', messageData);
+        });
       }
       
       // Send back to sender
@@ -248,9 +259,11 @@ io.on('connection', (socket: AuthenticatedSocket) => {
       if (message.channel) {
         io.to(`channel_${message.channel}`).emit('message_deleted', deletedMessageData);
       } else if (message.recipient) {
-        const recipientSocketId = connectedUsers.get(message.recipient.toString());
-        if (recipientSocketId) {
-          io.to(recipientSocketId).emit('message_deleted', deletedMessageData);
+        const recipientSockets = connectedUsers.get(message.recipient.toString());
+        if (recipientSockets) {
+          recipientSockets.forEach(socketId => {
+            io.to(socketId).emit('message_deleted', deletedMessageData);
+          });
         }
         socket.emit('message_deleted', deletedMessageData);
       }
@@ -293,9 +306,11 @@ io.on('connection', (socket: AuthenticatedSocket) => {
       if (message.channel) {
         io.to(`channel_${message.channel}`).emit('message_edited', editedMessageData);
       } else if (message.recipient) {
-        const recipientSocketId = connectedUsers.get(message.recipient.toString());
-        if (recipientSocketId) {
-          io.to(recipientSocketId).emit('message_edited', editedMessageData);
+        const recipientSockets = connectedUsers.get(message.recipient.toString());
+        if (recipientSockets) {
+          recipientSockets.forEach(socketId => {
+            io.to(socketId).emit('message_edited', editedMessageData);
+          });
         }
         socket.emit('message_edited', editedMessageData);
       }
@@ -307,20 +322,29 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 
   socket.on('disconnect', async () => {
     if (socket.userId) {
-      connectedUsers.delete(socket.userId);
-      
-      // Update user offline status
-      try {
-        const user = await User.findById(socket.userId);
-        if (user) {
-          user.isOnline = false;
-          user.lastSeen = new Date();
-          await user.save();
+      // Remove this socket from user's connected sockets
+      const userSockets = connectedUsers.get(socket.userId);
+      if (userSockets) {
+        userSockets.delete(socket.id);
+        
+        // If no more sockets, user is fully offline
+        if (userSockets.size === 0) {
+          connectedUsers.delete(socket.userId);
           
-          io.emit('user_offline', { userId: user._id, username: user.username });
+          // Update user offline status
+          try {
+            const user = await User.findById(socket.userId);
+            if (user) {
+              user.isOnline = false;
+              user.lastSeen = new Date();
+              await user.save();
+              
+              io.emit('user_offline', { userId: user._id, username: user.username });
+            }
+          } catch (error) {
+            console.error('Error updating user status:', error);
+          }
         }
-      } catch (error) {
-        console.error('Error updating user status:', error);
       }
     }
   });
