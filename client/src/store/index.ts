@@ -22,10 +22,15 @@ export default createStore({
     onlineUsers: new Set() as Set<string>,
     isAuthenticated: !!(localStorage.getItem('token')),
     loading: false,
-    error: null as string | null
+    error: null as string | null,
+    isDarkMode: localStorage.getItem('isDarkMode') === 'true'
   },
   
   mutations: {
+    TOGGLE_THEME(state) {
+      state.isDarkMode = !state.isDarkMode;
+      localStorage.setItem('isDarkMode', state.isDarkMode.toString());
+    },
     SET_USER(state, user) {
       state.user = user;
       state.isAuthenticated = !!user;

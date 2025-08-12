@@ -11,7 +11,12 @@
         <h3>IronCircle</h3>
         <div class="user-info">
           <span>{{ currentUser?.username }}</span>
-          <button @click="logout" class="logout-btn">Logout</button>
+          <div class="user-actions">
+            <button @click="toggleTheme" class="theme-btn" :title="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
+              {{ isDarkMode ? '🌞' : '🌙' }}
+            </button>
+            <button @click="logout" class="logout-btn">Logout</button>
+          </div>
         </div>
       </div>
       
@@ -309,6 +314,11 @@ export default defineComponent({
     // Computed properties
     const currentUser = computed(() => store.getters.currentUser);
     const channels = computed(() => store.getters.channels);
+    const isDarkMode = computed(() => store.state.isDarkMode);
+
+    const toggleTheme = () => {
+      store.commit('TOGGLE_THEME');
+    };
     const currentChannel = computed(() => store.getters.currentChannel);
     const messages = computed(() => store.getters.messages);
     const users = computed(() => store.getters.users);
@@ -896,7 +906,9 @@ export default defineComponent({
       handleTyping,
       createChannel,
       formatTime,
-      logout
+      logout,
+      isDarkMode,
+      toggleTheme
     };
   }
 });
@@ -906,9 +918,10 @@ export default defineComponent({
 .chat-container {
   display: flex;
   height: 100vh;
-  background: #f8f9fa;
+  background: v-bind('isDarkMode ? "#1a1f2c" : "#f8f9fa"');
   position: relative;
   overflow: hidden;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 @media (max-width: 768px) {
@@ -928,11 +941,12 @@ export default defineComponent({
 
 .sidebar {
   width: 280px;
-  background: white;
-  border-right: 1px solid #e1e5e9;
+  background: v-bind('isDarkMode ? "#151922" : "#ffffff"');
   display: flex;
   flex-direction: column;
   z-index: 100;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
+  border-right: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
 }
 
 @media (max-width: 768px) {
@@ -970,13 +984,17 @@ export default defineComponent({
 }
 
 .sidebar-header {
-  padding: 20px;
-  border-bottom: 1px solid #e1e5e9;
+  padding: 24px;
+  background: v-bind('isDarkMode ? "#151922" : "#f8f9fa"');
+  border-bottom: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
 }
 
 .sidebar-header h3 {
-  margin: 0 0 10px 0;
-  color: #333;
+  margin: 0 0 12px 0;
+  color: v-bind('isDarkMode ? "white" : "#1a1a1a"');
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
 .user-info {
@@ -984,19 +1002,47 @@ export default defineComponent({
   justify-content: space-between;
   align-items: center;
   font-size: 14px;
-  color: #666;
+  color: v-bind('isDarkMode ? "#94a3b8" : "#666"');
+}
+
+.user-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.theme-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-btn:hover {
+  background: v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)"');
+  transform: scale(1.1);
 }
 
 .logout-btn {
   background: none;
   border: none;
-  color: #667eea;
+  color: v-bind('isDarkMode ? "#94a3b8" : "#666"');
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 
 .logout-btn:hover {
-  text-decoration: underline;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .channels-section, .users-section {
@@ -1013,16 +1059,18 @@ export default defineComponent({
 
 .section-header h4 {
   margin: 0;
-  color: #333;
-  font-size: 14px;
+  color: #94a3b8;
+  font-size: 13px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .add-btn {
-  background: #667eea;
-  color: white;
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
   border: none;
-  border-radius: 50%;
+  border-radius: 6px;
   width: 24px;
   height: 24px;
   cursor: pointer;
@@ -1030,12 +1078,18 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.add-btn:hover {
+  background: rgba(102, 126, 234, 0.3);
+  transform: translateY(-1px);
 }
 
 .channel-list, .user-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .channel-item, .user-item {
@@ -1045,16 +1099,22 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
+  color: #94a3b8;
 }
 
 .channel-item:hover, .user-item:hover {
-  background: #f1f3f4;
+  background: rgba(255,255,255,0.05);
+  color: white;
 }
 
 .channel-item.active {
-  background: #667eea;
-  color: white;
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
+}
+
+.channel-item.active:hover {
+  background: rgba(102, 126, 234, 0.3);
 }
 
 .public-channel-dropdown {
@@ -1090,11 +1150,27 @@ export default defineComponent({
 }
 
 .channel-name {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.channel-item:not(.active) .channel-name::before {
+  content: "#";
+  opacity: 0.5;
+  font-weight: normal;
+}
+
+.channel-item.active .channel-name::before {
+  content: "#";
+  color: #667eea;
 }
 
 .private-indicator {
   font-size: 12px;
+  color: #667eea;
 }
 
 .user-avatar {
@@ -1158,15 +1234,16 @@ export default defineComponent({
 }
 
 .chat-header {
-  padding: 20px;
-  background: white;
-  border-bottom: 1px solid #e1e5e9;
+  padding: 16px 24px;
+  background: v-bind('isDarkMode ? "#1a1f2c" : "white"');
+  border-bottom: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
+  box-shadow: 0 1px 3px v-bind('isDarkMode ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.05)"');
 }
 
 .chat-header-content {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .chat-header-left {
@@ -1174,30 +1251,39 @@ export default defineComponent({
 }
 
 .chat-header h3 {
-  margin: 0 0 5px 0;
-  color: #333;
+  margin: 0 0 4px 0;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#1a1a1a"');
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .chat-header-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
 }
 
 .icon-button {
-  background: none;
-  border: none;
-  font-size: 20px;
+  background: #f8f9fa;
+  border: 1px solid #e1e5e9;
+  font-size: 18px;
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
+  padding: 8px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  color: #4b5563;
 }
 
 .icon-button:hover {
-  background-color: #f1f3f5;
+  background-color: #667eea;
+  border-color: #667eea;
+  color: white;
+  transform: translateY(-1px);
 }
 
 .search-bar {
@@ -1205,18 +1291,35 @@ export default defineComponent({
   gap: 8px;
   padding-top: 12px;
   align-items: center;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .search-bar .message-input {
   flex: 1;
   margin: 0;
+  border-radius: 20px;
+  padding: 10px 16px;
+  border-color: #e1e5e9;
+  transition: all 0.2s ease;
+}
+
+.search-bar .message-input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .channel-description {
-  margin: 0;
-  color: #666;
+  color: v-bind('isDarkMode ? "#94a3b8" : "#6b7280"');
   font-size: 14px;
+  margin: 0;
 }
+
+
 
 .welcome-screen {
   flex: 1;
@@ -1225,12 +1328,12 @@ export default defineComponent({
   justify-content: center;
   align-items: center;
   text-align: center;
-  color: #666;
+  color: v-bind('isDarkMode ? "#94a3b8" : "#666"');
 }
 
 .welcome-screen h2 {
   margin-bottom: 10px;
-  color: #333;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 .messages-container {
@@ -1352,89 +1455,128 @@ export default defineComponent({
 .message-author {
   font-weight: 600;
   font-size: 14px;
-  color: #333;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
 }
 
 .message-time {
   font-size: 12px;
-  color: #666;
+  color: v-bind('isDarkMode ? "#94a3b8" : "#666"');
 }
 
 .message-content {
-  background: white;
+  background: v-bind('isDarkMode ? "#2d3748" : "white"');
   padding: 12px 16px;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  font-size: 14px;
-  line-height: 1.4;
+  border-radius: 16px;
+  box-shadow: 0 2px 4px v-bind('isDarkMode ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.05)"');
+  font-size: 15px;
+  line-height: 1.5;
   word-break: break-word;
+  border: 1px solid v-bind('isDarkMode ? "#4a5568" : "#e5e7eb"');
+  transition: all 0.2s ease;
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
+}
+
+.message:hover .message-content {
+  border-color: #d1d5db;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
 .deleted-message {
   font-style: italic;
-  color: #999;
+  color: #9ca3af;
 }
 
 .file-attachment {
   margin-top: 10px;
-  padding: 10px;
-  background-color: #f1f3f5;
-  border-radius: 8px;
+  padding: 12px;
+  background-color: #f9fafb;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s ease;
+}
+
+.file-attachment:hover {
+  border-color: #d1d5db;
+  background-color: #f3f4f6;
 }
 
 .file-info-container {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .file-icon {
   font-size: 24px;
+  color: #4b5563;
 }
 
 .file-details {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .file-name-display {
   font-weight: 500;
+  color: #1f2937;
 }
 
 .file-size-display {
   font-size: 12px;
-  color: #666;
+  color: #6b7280;
 }
 
 .chat-image {
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .download-btn {
   background: #667eea;
   color: white;
   border: none;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
   cursor: pointer;
   align-self: flex-start;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.download-btn:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
 }
 
 .message.own-message .message-content {
   background: #667eea;
   color: white;
+  border-color: #5a67d8;
 }
 
 .message.own-message .file-attachment {
   background-color: #5a67d8;
+  border-color: #4c51bf;
 }
 
+.message.own-message .file-icon,
+.message.own-message .file-name-display,
 .message.own-message .file-size-display {
-  color: #e2e8f0;
+  color: white;
+}
+
+.message.own-message .download-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.message.own-message .download-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .typing-indicator {
@@ -1445,18 +1587,19 @@ export default defineComponent({
 }
 
 .message-input-container {
-  padding: 20px;
-  background: white;
-  border-top: 1px solid #e1e5e9;
+  padding: 20px 24px;
+  background: v-bind('isDarkMode ? "#1a1f2c" : "white"');
+  border-top: 1px solid v-bind('isDarkMode ? "rgba(255,255,255,0.1)" : "#e1e5e9"');
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: 100%;
+  box-shadow: 0 -1px 3px v-bind('isDarkMode ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.05)"');
 }
 
 @media (max-width: 768px) {
   .message-input-container {
-    padding: 12px;
+    padding: 16px;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -1469,24 +1612,139 @@ export default defineComponent({
 .input-wrapper {
   display: flex;
   gap: 12px;
+  align-items: center;
+}
+
+.message-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid v-bind('isDarkMode ? "#4a5568" : "#e5e7eb"');
+  border-radius: 20px;
+  font-size: 15px;
+  resize: none;
+  transition: all 0.2s ease;
+  background: v-bind('isDarkMode ? "#2d3748" : "#f9fafb"');
+  color: v-bind('isDarkMode ? "#e2e8f0" : "#333"');
+}
+
+.message-input:hover {
+  border-color: v-bind('isDarkMode ? "#667eea" : "#d1d5db"');
+  background: v-bind('isDarkMode ? "#374151" : "white"');
+}
+
+.message-input:focus {
+  outline: none;
+  border-color: #667eea;
+  background: v-bind('isDarkMode ? "#374151" : "white"');
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.send-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: #5a67d8;
+  transform: translateY(-1px);
+}
+
+.send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.attach-btn {
+  background: #f9fafb;
+  border: 2px solid #e5e7eb;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 10px;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  color: #4b5563;
+}
+
+.attach-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+  transform: translateY(-1px);
+}
+
+.file-staging {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background-color: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 14px;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.remove-file-btn {
+  background: #fee2e2;
+  border: none;
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+  cursor: pointer;
+  color: #ef4444;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.remove-file-btn:hover {
+  background: #fecaca;
+  transform: scale(1.1);
 }
 
 @media (max-width: 768px) {
-  .message-input-container {
-    padding: 12px;
-  }
-
-  .input-wrapper {
-    gap: 8px;
-  }
-
   .message-input {
     font-size: 16px;
-    padding: 10px;
+    padding: 10px 16px;
   }
 
   .send-btn {
-    padding: 10px 16px;
+    padding: 10px 20px;
+  }
+
+  .attach-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
   }
 
   .modal {
@@ -1500,72 +1758,6 @@ export default defineComponent({
     font-size: 16px;
     padding: 10px;
   }
-}
-
-.message-input {
-  flex: 1;
-  padding: 12px 16px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
-  font-size: 14px;
-  resize: none;
-}
-
-.message-input:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.send-btn {
-  background: #667eea;
-  color: white;
-  border: none;
-  padding: 12px 20px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.attach-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 0 10px;
-}
-
-.file-staging {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px;
-  background-color: #f0f2f5;
-  border-radius: 8px;
-  font-size: 14px;
-}
-
-.file-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.remove-file-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  color: #666;
-  padding: 0 5px;
-}
-
-.send-btn:hover:not(:disabled) {
-  background: #5a67d8;
-}
-
-.send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .modal-overlay {
