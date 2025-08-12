@@ -294,19 +294,46 @@ export default createStore({
       }
     },
     
-    async fetchMessages({ commit }, channelIdOrPayload: any) {
+    async fetchMessages({ commit, state }, channelIdOrPayload: any) {
+      const channelId = typeof channelIdOrPayload === 'string' ? channelIdOrPayload : channelIdOrPayload.channelId;
+      const q = typeof channelIdOrPayload === 'object' ? channelIdOrPayload.q : undefined;
+      const forceRefresh = typeof channelIdOrPayload === 'object' ? channelIdOrPayload.forceRefresh : false;
+
       try {
-        const channelId = typeof channelIdOrPayload === 'string' ? channelIdOrPayload : channelIdOrPayload.channelId;
-        const q = typeof channelIdOrPayload === 'object' ? channelIdOrPayload.q : undefined;
-        console.log('Fetching messages for channel:', channelId, q ? `(q="${q}")` : '');
-        const response = await axios.get(`${API_URL}/channels/${channelId}/messages`, {
-          params: q ? { q } : undefined
-        });
-        console.log('Messages response:', response.data);
+
+        // If searching, always fetch from server
+        if (q) {
+          const response = await axios.get(`${API_URL}/channels/${channelId}/messages`, {
+            params: { q }
+          });
+          commit('SET_MESSAGES', response.data);
+          return;
+        }
+
+        // Check if we have cached messages and no unread messages
+        const cachedMessages = state.channelMessages[channelId] || [];
+        const hasUnread = state.unreadChannels.has(channelId);
+
+        if (cachedMessages.length > 0 && !hasUnread && !forceRefresh) {
+          // Use cache
+          commit('SET_MESSAGES', cachedMessages);
+          return;
+        }
+
+        // Fetch from server if:
+        // 1. No cached messages OR
+        // 2. Has unread messages OR
+        // 3. Force refresh requested
+        const response = await axios.get(`${API_URL}/channels/${channelId}/messages`);
         commit('SET_MESSAGES', response.data);
         commit('SET_CHANNEL_MESSAGES', { channelId, messages: response.data });
       } catch (error) {
         console.error('Error fetching messages:', error);
+        // On error, fall back to cache if available
+        const cachedMessages = state.channelMessages[channelId] || [];
+        if (cachedMessages.length > 0) {
+          commit('SET_MESSAGES', cachedMessages);
+        }
       }
     },
     
