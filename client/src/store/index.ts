@@ -363,38 +363,59 @@ export default createStore({
         throw error;
       }
     },
-    async fetchPrivateMessages({ commit, state }, payload: { userId: string; q?: string; since?: string }) {
-      try {
-        console.log('Fetching private messages:', payload);
-        const params: any = {};
-        if (payload.q) params.q = payload.q;
-        if (payload.since) params.since = payload.since;
+    async fetchPrivateMessages({ commit, state }, payload: { userId: string; q?: string; since?: string; forceRefresh?: boolean }) {
+      const { userId, q, since, forceRefresh } = payload;
 
-        const response = await axios.get(`${API_URL}/users/${payload.userId}/messages`, { params });
-        
-        if (payload.q) {
-          // For search results, just update current messages
-          commit('SET_MESSAGES', response.data);
-        } else {
-          // For regular fetch, update both current and cached messages
-          const existingMessages = state.privateMessages[payload.userId] || [];
-          const newMessages = payload.since
-            ? [...existingMessages, ...response.data]
-            : response.data;
-          
-          // Deduplicate messages
-          const seen = new Set();
-          const deduped = newMessages.filter((m: any) => {
-            if (seen.has(m._id)) return false;
-            seen.add(m._id);
-            return true;
+      try {
+        // If searching, always fetch from server
+        if (q) {
+          const response = await axios.get(`${API_URL}/users/${userId}/messages`, {
+            params: { q }
           });
-          
-          commit('SET_MESSAGES', deduped);
-          commit('SET_PRIVATE_MESSAGES', { userId: payload.userId, messages: deduped });
+          commit('SET_MESSAGES', response.data);
+          return;
         }
+
+        // Check if we have cached messages and no unread messages
+        const cachedMessages = state.privateMessages[userId] || [];
+        const hasUnread = state.unreadChannels.has(userId);
+
+        if (cachedMessages.length > 0 && !hasUnread && !forceRefresh) {
+          // Use cache
+          commit('SET_MESSAGES', cachedMessages);
+          return;
+        }
+
+        // Fetch from server if:
+        // 1. No cached messages OR
+        // 2. Has unread messages OR
+        // 3. Force refresh requested
+        const response = await axios.get(`${API_URL}/users/${userId}/messages`, {
+          params: since ? { since } : undefined
+        });
+
+        // If we have since parameter, append to existing messages
+        const newMessages = since
+          ? [...cachedMessages, ...response.data]
+          : response.data;
+
+        // Deduplicate messages
+        const seen = new Set();
+        const deduped = newMessages.filter((m: any) => {
+          if (seen.has(m._id)) return false;
+          seen.add(m._id);
+          return true;
+        });
+
+        commit('SET_MESSAGES', deduped);
+        commit('SET_PRIVATE_MESSAGES', { userId, messages: deduped });
       } catch (error) {
         console.error('Error fetching private messages:', error);
+        // On error, fall back to cache if available
+        const cachedMessages = state.privateMessages[userId] || [];
+        if (cachedMessages.length > 0) {
+          commit('SET_MESSAGES', cachedMessages);
+        }
       }
     },
     

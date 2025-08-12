@@ -876,32 +876,11 @@ export default defineComponent({
       store.commit('SET_CURRENT_CHANNEL', null);
       store.commit('CLEAR_UNREAD_CHANNEL', user._id);
 
-      // Show cached messages immediately
-      const cachedMessages = store.getters.getPrivateMessages(user._id);
-      if (cachedMessages.length > 0) {
-        store.commit('SET_MESSAGES', cachedMessages);
-      }
-
-      const isChatLoaded = store.getters.isChatLoaded(user._id);
-      const lastTimestamp = store.getters.getLastMessageTimestamp(user._id);
-
-      if (!isChatLoaded) {
-        // First time loading this chat
-        await store.dispatch('fetchPrivateMessages', { userId: user._id });
-        store.commit('MARK_CHAT_LOADED', user._id);
-        if (messages.value.length > 0) {
-          store.commit('UPDATE_LAST_MESSAGE_TIMESTAMP', {
-            chatId: user._id,
-            timestamp: messages.value[messages.value.length - 1].createdAt
-          });
-        }
-      } else if (lastTimestamp) {
-        // Check for new messages since last load
-        await store.dispatch('fetchPrivateMessages', {
-          userId: user._id,
-          since: lastTimestamp
-        });
-      }
+      // Fetch messages with caching logic
+      await store.dispatch('fetchPrivateMessages', { 
+        userId: user._id,
+        forceRefresh: false
+      });
       
       scrollToBottom();
     };
