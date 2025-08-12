@@ -113,10 +113,6 @@
       <!-- Channel Panel (replaces chat when open) -->
       <div v-if="showChannelPanel && currentChannel" class="messages-container">
         <div class="messages" style="padding: 16px;">
-          <div style="margin-bottom:12px; display:flex; gap:8px; align-items:center;">
-            <input v-model="channelMessageQuery" @input="onChannelMessageQuery" placeholder="Search messages in #{{ currentChannel.name }}" class="message-input" />
-            <button class="send-btn" @click="closeChannelPanel">Close</button>
-          </div>
           <div v-if="isCurrentUserAdmin" style="margin-bottom:16px;">
             <h4>Admin Tools</h4>
             <div class="form-group">
@@ -145,6 +141,9 @@
               </div>
             </div>
           </div>
+        </div>
+        <div class="channel-panel-footer">
+          <button class="send-btn" @click="closeChannelPanel">Close Panel</button>
         </div>
       </div>
 
@@ -446,7 +445,6 @@ export default defineComponent({
 
     const closeChannelPanel = () => {
       showChannelPanel.value = false;
-      channelMessageQuery.value = '';
     };
 
     const onChannelMessageQuery = () => {
@@ -1650,5 +1648,13 @@ export default defineComponent({
   background: #667eea;
   border: none;
   color: white;
+}
+
+.channel-panel-footer {
+  padding: 16px;
+  background: white;
+  border-top: 1px solid #e1e5e9;
+  display: flex;
+  justify-content: center;
 }
 </style>
