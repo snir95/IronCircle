@@ -2,7 +2,7 @@ import express from 'express';
 import { auth } from '../middleware/auth.js';
 import { Channel } from '../models/Channel.js';
 import { Message } from '../models/Message.js';
-import { User } from '../models/User.js';
+import { connectedUsers } from '../index.js';
 
 interface AuthRequest extends express.Request {
   user?: any;
@@ -16,16 +16,16 @@ const isAdmin = (channel: any, userId: any) =>
 // Get all channels the user is a member of and online users
 router.get('/', auth, async (req: AuthRequest, res) => {
   try {
-    const [channels, onlineUsers] = await Promise.all([
-      Channel.find({
-        members: req.user._id
-      }).populate('createdBy', 'username'),
-      User.find({ isOnline: true }, 'username isOnline')
-    ]);
+    const channels = await Channel.find({
+      members: req.user._id
+    }).populate('createdBy', 'username');
+    
+    // Get online users from Socket.IO's connectedUsers Map
+    const onlineUsers = Array.from(connectedUsers.keys());
     
     res.json({
       channels,
-      onlineUsers: onlineUsers.map(user => (user as any)._id.toString())
+      onlineUsers
     });
   } catch (error) {
     console.error('Error fetching channels:', error);

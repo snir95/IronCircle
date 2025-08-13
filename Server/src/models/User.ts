@@ -5,7 +5,6 @@ export interface IUser extends mongoose.Document {
   email: string;
   password: string;
   avatar?: string;
-  isOnline: boolean;
   lastSeen: Date;
   // These are automatically handled by Mongoose with timestamps: true
   createdAt: Date;
@@ -36,10 +35,6 @@ const userSchema = new mongoose.Schema<IUser>({
   avatar: {
     type: String,
     default: null
-  },
-  isOnline: {
-    type: Boolean,
-    default: false
   },
   lastSeen: {
     type: Date,

@@ -1,4 +1,3 @@
-
 import express from 'express';
 import type { Express, Request, Response } from 'express';
 import http from 'http';
@@ -13,7 +12,6 @@ import userRoutes from './routes/users.js';
 import { auth } from './middleware/auth.js';
 import { User } from './models/User.js';
 import { Message } from './models/Message.js';
-import { Channel } from './models/Channel.js';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -53,13 +51,12 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 // Store connected users and their socket IDs
-const connectedUsers = new Map<string, Set<string>>();
+export const connectedUsers = new Map<string, Set<string>>();
 
 io.on('connection', (socket: AuthenticatedSocket) => {
   // Authenticate user
   socket.on('authenticate', async (token: string) => {
     try {
-
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as any;
       const user = await User.findById(decoded.userId);
       
@@ -76,14 +73,19 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         if (userSockets && socket.id) {
           userSockets.add(socket.id);
         }
+       
+        // Emit current online users to the newly connected user
+        const onlineUsers = Array.from(connectedUsers.keys());
+        socket.emit('authenticated', { 
+          success: true,
+          onlineUsers 
+        });
         
-        // Update user online status
-        user.isOnline = true;
-        user.lastSeen = new Date();
-        await user.save();
-        
-        socket.emit('authenticated', { success: true });
-        io.emit('user_online', { userId: user._id, username: user.username });
+        // Notify others that this user is online
+        socket.broadcast.emit('user_online', { 
+          userId: user._id, 
+          username: user.username 
+        });
       }
     } catch (error) {
       socket.emit('authenticated', { success: false, message: 'Invalid token' });
@@ -215,17 +217,6 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     }
   });
 
-  // Typing indicator
-  socket.on('typing', (data: { channelId: string; isTyping: boolean }) => {
-    if (socket.userId) {
-      socket.to(`channel_${data.channelId}`).emit('user_typing', {
-        userId: socket.userId,
-        username: socket.username,
-        isTyping: data.isTyping
-      });
-    }
-  });
-
   // Delete message
   socket.on('delete_message', async (messageId: string) => {
     if (!socket.userId) return;
@@ -320,7 +311,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     }
   });
 
-  socket.on('disconnect', async () => {
+  socket.on('disconnect', () => {
     if (socket.userId) {
       // Remove this socket from user's connected sockets
       const userSockets = connectedUsers.get(socket.userId);
@@ -331,19 +322,13 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         if (userSockets.size === 0) {
           connectedUsers.delete(socket.userId);
           
-          // Update user offline status
-          try {
-            const user = await User.findById(socket.userId);
-            if (user) {
-              user.isOnline = false;
-              user.lastSeen = new Date();
-              await user.save();
-              
-              io.emit('user_offline', { userId: user._id, username: user.username });
-            }
-          } catch (error) {
-            console.error('Error updating user status:', error);
-          }
+          // No need to update anything in DB for online status
+          
+          // Notify others that user went offline
+          io.emit('user_offline', { 
+            userId: socket.userId, 
+            username: socket.username 
+          });
         }
       }
     }
