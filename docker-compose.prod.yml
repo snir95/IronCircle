@@ -1,6 +1,11 @@
 version: '3.8'
 
 services:
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+
   server:
     build:
       context: ./Server
@@ -9,25 +14,24 @@ services:
     volumes: []
     # No need to expose port to host if it's behind a reverse proxy like Nginx
     # But we expose it here for direct access if needed
+    #W Will be added later
     ports:
       - "3001:3001"
-    restart: always
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - mongo
 
   client:
     build:
       context: ./client
       dockerfile: Dockerfile.prod
-    volumes: []
+    volumes:
+      - ./client:/app
+      - /app/node_modules
     ports:
-      # Nginx serves on port 80, which we map to host port 80
-      - "80:80"
-    restart: always
-    networks:
-      - app-network
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
     depends_on:
       - server
-
-networks:
-  app-network:
-    driver: bridge
-    
