@@ -159,8 +159,6 @@ IronCircle/
 - JWT Authentication
 - Password Hashing (bcrypt)
 - CORS Protection
-- Input Validation
-- XSS Protection
 - Secure WebSocket Communication
 
 ## 🚧 Upcoming Features

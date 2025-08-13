@@ -364,23 +364,23 @@ export default defineComponent({
     const requestNotificationPermission = async () => {
       try {
         if (!("Notification" in window)) {
-          console.log("This browser does not support notifications");
+          console.warn('[Notifications] Browser does not support notifications');
           return false;
         }
         
         if (Notification.permission === "granted") {
-          console.log("Notification permission already granted");
+          console.info('[Notifications] Permission already granted');
           return true;
         }
         
         if (Notification.permission === "denied") {
-          console.log("Notification permission previously denied");
+          console.warn('[Notifications] Permission previously denied');
           return false;
         }
 
-        console.log("Requesting notification permission...");
+        console.info('[Notifications] Requesting permission...');
         const permission = await Notification.requestPermission();
-        console.log("Permission response:", permission);
+        console.info('[Notifications] Permission response:', permission);
         
         if (permission === "granted") {
           // Show a test notification to ensure everything works
@@ -390,11 +390,11 @@ export default defineComponent({
           });
           return true;
         } else {
-          console.log("Notification permission denied");
+          console.warn('[Notifications] Permission denied');
           return false;
         }
       } catch (error) {
-        console.error("Error requesting notification permission:", error);
+        console.warn('[Notifications] Permission request failed:', error);
         return false;
       }
     };
@@ -448,7 +448,7 @@ export default defineComponent({
           requireInteraction: true // Keep notification until user interacts with it
         });
       } catch (error) {
-        console.error("Error showing notification:", error);
+        console.warn('[Notifications] Failed to show notification:', error);
       }
     };
     const currentChannel = computed(() => store.getters.currentChannel);
@@ -478,30 +478,30 @@ export default defineComponent({
              socket.value = io('http://localhost:3001');
        
        socket.value.on('connect_error', (error) => {
-         console.error('Socket connection error:', error);
+         toast.error('Connection error');
        });
        
        socket.value.on('error', (error) => {
-         console.error('Socket error:', error);
+         toast.error('Connection error');
        });
       
              socket.value.on('connect', () => {
-         console.log('Connected to server via WebSocket');
+ 
          socket.value?.emit('authenticate', token);
        });
       
                    socket.value.on('authenticated', async (data) => {
         if (data.success) {
-          console.log('Socket authenticated successfully');
+
           await loadInitialData();
           
           // Join all channels after loading them
           channels.value.forEach((channel: any) => {
-            console.log('Joining channel:', channel.name);
+  
             socket.value?.emit('join_channel', channel._id);
           });
         } else {
-          console.error('Authentication failed:', data.message);
+          toast.error('Authentication failed');
         }
       });
       
@@ -656,11 +656,7 @@ export default defineComponent({
         if (currentChannel.value) {
           store.dispatch('fetchMessages', { channelId: currentChannel.value._id, q: query });
         } else if (currentPrivateChat.value) {
-          console.log('Private chat search params:', {
-            userId: currentPrivateChat.value._id,
-            username: currentPrivateChat.value.username,
-            q: query
-          });
+
           store.dispatch('fetchPrivateMessages', { userId: currentPrivateChat.value._id, q: query });
         }
       }, 600) as unknown as number;
@@ -977,7 +973,7 @@ export default defineComponent({
               };
             });
         } catch (error) {
-          console.log("Couldn't watch notification permission changes:", error);
+
         }
       }
       
@@ -993,7 +989,7 @@ export default defineComponent({
     watch(channels, (newChannels) => {
       newChannels.forEach((channel: any) => {
         if (socket.value) {
-          console.log('Joining channel after update:', channel.name);
+
           socket.value.emit('join_channel', channel._id);
         }
       });

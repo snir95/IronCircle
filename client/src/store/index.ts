@@ -286,7 +286,7 @@ export default createStore({
           }
         }
       } catch (error: any) {
-        console.error('Error fetching channels:', error);
+        console.warn('[Store] Failed to fetch channels:', error);
         // Don't clear existing channels on error, keep what we have in localStorage
       }
     },
@@ -297,7 +297,7 @@ export default createStore({
         commit('ADD_CHANNEL', response.data);
         return response.data;
       } catch (error) {
-        console.error('Error creating channel:', error);
+        throw error; // Let component handle the error
         throw error;
       }
     },
@@ -336,8 +336,7 @@ export default createStore({
         commit('SET_MESSAGES', response.data);
         commit('SET_CHANNEL_MESSAGES', { channelId, messages: response.data });
       } catch (error) {
-        console.error('Error fetching messages:', error);
-        // On error, fall back to cache if available
+        console.warn('[Store] Failed to fetch messages:', error);
         const cachedMessages = state.channelMessages[channelId] || [];
         if (cachedMessages.length > 0) {
           commit('SET_MESSAGES', cachedMessages);
@@ -350,7 +349,7 @@ export default createStore({
         const response = await axios.get(`${API_URL}/users`);
         commit('SET_USERS', response.data);
       } catch (error: any) {
-        console.error('Error fetching users:', error);
+        console.warn('[Store] Failed to fetch users:', error);
         // Don't clear existing users on error, keep what we have in localStorage
       }
     },
@@ -359,7 +358,7 @@ export default createStore({
         const response = await axios.get(`${API_URL}/channels/search/public`, { params: { q } });
         commit('SET_PUBLIC_CHANNEL_RESULTS', response.data);
       } catch (error) {
-        console.error('Error searching public channels:', error);
+        commit('SET_PUBLIC_CHANNEL_RESULTS', []); // Clear results on error
       }
     },
     async joinPublicChannel({ dispatch }, channelId: string) {
@@ -418,8 +417,7 @@ export default createStore({
         commit('SET_MESSAGES', deduped);
         commit('SET_PRIVATE_MESSAGES', { userId, messages: deduped });
       } catch (error) {
-        console.error('Error fetching private messages:', error);
-        // On error, fall back to cache if available
+        console.warn('[Store] Failed to fetch private messages:', error);
         const cachedMessages = state.privateMessages[userId] || [];
         if (cachedMessages.length > 0) {
           commit('SET_MESSAGES', cachedMessages);
@@ -428,7 +426,7 @@ export default createStore({
     },
     
     addMessage({ commit, state }, message) {
-      console.log('Adding message to store:', message);
+
       
       // Handle channel messages
       const channelId = typeof message.channel === 'object' && message.channel?._id
